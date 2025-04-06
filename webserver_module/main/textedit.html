@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Badge Text Editor</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #4449db;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            width: 90%;
+            max-width: 400px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            width: 80%;
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #4449db;
+            border: none;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Badge Text Editor</h1>
+        <form id="textForm">
+            <input type="text" id="first_name" placeholder="First Name">
+            <input type="text" id="last_name" placeholder="Last Name">
+            <input type="text" id="additional_info" placeholder="Additional Info">
+            <button type="submit">Send</button>
+        </form>
+        <pre id="result"></pre>
+        <script>
+            document.getElementById('textForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const data = {
+                    first_name: document.getElementById('first_name').value,
+                    last_name: document.getElementById('last_name').value,
+                    additional_info: document.getElementById('additional_info').value
+                };
+                const response = await fetch('/sendtext', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                Console.log(JSON.stringify(result, null, 2))
+                document.getElementById('result').textContent = JSON.stringify(result, null, 2);
+            });
+        </script>
+    </div>
+</body>
+
+</html>
