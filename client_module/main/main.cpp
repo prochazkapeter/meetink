@@ -19,15 +19,15 @@ EpdSpi io;
 // Gdem029E97 display(io); // 2.9 inch
 Gdew075T7 display(io); // 7.5 inch grayscale
 
-// #include <Fonts/ubuntu/Ubuntu_M12pt8b.h>
-// #include <Fonts/DMSerifText_Regular20pt7b.h>
-#include <Fonts/DMSerifText_Regular24pt7b.h>
-// #include <Fonts/Roboto_Condensed_Bold84pt7b.h>
-// #include <Fonts/FreeSansBold80pt7b.h>
+#include <Fonts/Roboto_Condensed_SemiBold40pt7b.h>
+#include <Fonts/Roboto_Condensed_SemiBold60pt7b.h>
 #include <Fonts/Roboto_Condensed_SemiBold75pt7b.h>
 
-#define FONT_USED Roboto_Condensed_SemiBold75pt7b
-#define FONT_SMALL DMSerifText_Regular24pt7b
+#define Y_OFFSET 40
+#define LINE_SPACING 50
+
+uint8_t esp_mac[6];
+static const char *TAG = "ESP-NOW RX";
 
 extern "C"
 {
@@ -36,8 +36,41 @@ extern "C"
 
 void delay(uint32_t millis) { vTaskDelay(millis / portTICK_PERIOD_MS); }
 
-uint8_t esp_mac[6];
-static const char *TAG = "ESP-NOW RX";
+static const GFXfont *selectFontForText(const char *text, uint16_t availWidth, uint16_t availHeight)
+{
+    const GFXfont *fonts[3] = {
+        &Roboto_Condensed_SemiBold75pt7b,
+        &Roboto_Condensed_SemiBold60pt7b,
+        &Roboto_Condensed_SemiBold40pt7b};
+
+    int16_t tbx, tby;
+    uint16_t tbw, tbh;
+    for (int i = 0; i < 3; i++)
+    {
+        display.setFont(fonts[i]);
+        display.getTextBounds(text, 0, 0, &tbx, &tby, &tbw, &tbh);
+        ESP_LOGI(TAG, "tbw %d tbh: %d\n", tbw, tbh);
+        if (tbw <= availWidth && tbh <= availHeight)
+        {
+            ESP_LOGI(TAG, "Chosen font: %d\n", i);
+            return fonts[i];
+        }
+    }
+    ESP_LOGI(TAG, "Chosen smallest font\n");
+    return &Roboto_Condensed_SemiBold40pt7b;
+}
+
+static uint16_t printCenteredLine(const char *text, uint16_t startY, uint16_t availWidth)
+{
+    int16_t tbx, tby;
+    uint16_t tbw, tbh;
+    display.getTextBounds(text, 0, startY, &tbx, &tby, &tbw, &tbh);
+    uint16_t x = (availWidth - tbw) / 2 - tbx;
+    display.setCursor(x, startY + tbh); // Adjust y to account for text baseline
+    display.println(text);
+    return tbh;
+}
+
 void esp_now_recv_callback(const esp_now_recv_info_t *esp_now_info, const uint8_t *data, int data_len)
 {
     char *json_str = (char *)malloc(data_len + 1);
@@ -48,7 +81,7 @@ void esp_now_recv_callback(const esp_now_recv_info_t *esp_now_info, const uint8_
     }
 
     memcpy(json_str, data, data_len);
-    json_str[data_len] = '\0'; // správné zakončení stringu
+    json_str[data_len] = '\0'; // terminating zero for string
 
     ESP_LOGI(TAG, "Received string: %s", json_str);
 
@@ -60,7 +93,7 @@ void esp_now_recv_callback(const esp_now_recv_info_t *esp_now_info, const uint8_
         return;
     }
 
-    // Pointery z JSONu
+    // extract data from JSON
     cJSON *first_name_item = cJSON_GetObjectItemCaseSensitive(json, "first_name");
     cJSON *last_name_item = cJSON_GetObjectItemCaseSensitive(json, "last_name");
     cJSON *additional_info_item = cJSON_GetObjectItemCaseSensitive(json, "additional_info");
@@ -72,54 +105,57 @@ void esp_now_recv_callback(const esp_now_recv_info_t *esp_now_info, const uint8_
     ESP_LOGI(TAG, "Parsed JSON - First Name: %s, Last Name: %s, Additional Info: %s",
              first_name, last_name, additional_info);
 
+    // turn on display power
+    gpio_set_level(GPIO_NUM_2, 1);
     // Update the e-ink display
     display.fillScreen(EPD_WHITE);
     // Set font and text color as needed
-    display.setFont(&FONT_USED);
     display.setTextColor(EPD_BLACK);
 
-    // Layout idea:
-    // - Display first and last name at the top (centered) with a large font.
-    // - Display additional info in a smaller font below.
-    int16_t tbx, tby;
-    uint16_t tbw, tbh;
-    uint16_t x, y = 0;
+    uint16_t dispWidth = display.width();
+    uint16_t dispHeight = display.height();
+    uint16_t currentY = Y_OFFSET;
+    uint16_t lineSpacing = LINE_SPACING;
+    uint16_t availHeightForName = 150;
 
-    // Display first name (if provided)
+    // --- Display first name ---
     if (strlen(first_name) > 0)
     {
-        display.getTextBounds(first_name, 0, 0, &tbx, &tby, &tbw, &tbh);
-        x = (display.width() - tbw) / 2 - tbx;
-        y = 1.3 * tbh;
-        display.setCursor(x, y);
-        display.println(first_name);
+        const GFXfont *fontForFirst = selectFontForText(first_name, dispWidth, availHeightForName);
+        display.setFont(fontForFirst);
+        currentY += printCenteredLine(first_name, currentY, dispWidth);
+        currentY += lineSpacing; // extra gap after the first name
     }
 
-    // Display last name (if provided) just below first name
+    // --- Display last name ---
     if (strlen(last_name) > 0)
     {
-        display.getTextBounds(last_name, 0, 0, &tbx, &tby, &tbw, &tbh);
-        x = (display.width() - tbw) / 2 - tbx;
-        y += 1.5 * tbh;
-        display.setCursor(x, y);
-        display.println(last_name);
+        const GFXfont *fontForLast = selectFontForText(last_name, dispWidth, availHeightForName);
+        display.setFont(fontForLast);
+        currentY += printCenteredLine(last_name, currentY, dispWidth);
+        currentY += lineSpacing;
     }
 
-    // Display additional info (if provided) in the lower part of the screen
-    display.setFont(&FONT_SMALL);
+    // --- Display additional info ---
     if (strlen(additional_info) > 0)
     {
+        display.setFont(&Roboto_Condensed_SemiBold40pt7b);
+        int16_t tbx, tby;
+        uint16_t tbw, tbh;
         display.getTextBounds(additional_info, 0, 0, &tbx, &tby, &tbw, &tbh);
-        x = (display.width() - tbw) / 2 - tbx;
-        y = display.height() - tbh;
-        display.setCursor(x, y);
+        uint16_t infoY = dispHeight - tbh - 20;
+        int16_t infoX = (dispWidth - tbw) / 2 - tbx;
+        display.setCursor(infoX, infoY + tbh);
         display.println(additional_info);
     }
-
+    // update display
     display.update();
-    // free data
+
+    // Cleanup JSON and free allocated memory
     cJSON_Delete(json);
     free(json_str);
+    // turn off display power
+    gpio_set_level(GPIO_NUM_2, 0);
 }
 void wifi_sta_init(void)
 {
@@ -155,14 +191,8 @@ void app_main(void)
     ESP_LOGI(TAG, "CalEPD version %s", CALEPD_VERSION);
     display.init(false);
     display.setRotation(2);
-    display.setFont(&FONT_USED);
     display.setTextColor(EPD_BLACK);
     display.fillScreen(EPD_WHITE);
     display.update();
-    // gpio_set_level(GPIO_NUM_2, 0);
-
-    while (1)
-    {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+    gpio_set_level(GPIO_NUM_2, 0);
 }

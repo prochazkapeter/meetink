@@ -1,2 +1,4 @@
 /webserver_module/build
 /client_module/build
+/client_module/.vscode
+/webserver_module/.vscode
