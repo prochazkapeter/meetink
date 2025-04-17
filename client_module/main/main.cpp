@@ -7,6 +7,8 @@
 #include "nvs_flash.h"
 #include "esp_now.h"
 #include "driver/gpio.h"
+#include <driver/adc.h>
+#include "esp_adc_cal.h"
 #include "cJSON.h"
 #include "qrcode.h"
 #include "text_decode_utils.h"
@@ -14,7 +16,7 @@
 // #include "freertos/FreeRTOS.h"
 // #include "freertos/task.h"
 
-#include "gdem029E97.h"
+// #include "gdem029E97.h"
 #include "gdew075T7.h"
 
 EpdSpi io;
@@ -27,6 +29,11 @@ Gdew075T7 display(io); // 7.5 inch grayscale
 
 #define Y_OFFSET 40
 #define LINE_SPACING 50
+#define ADC_CHANNEL ADC1_CHANNEL_6 // GPIO34 corresponds to ADC1_CHANNEL_6
+#define ADC_ATTEN ADC_ATTEN_DB_11
+#define ADC_WIDTH ADC_WIDTH_BIT_12
+#define DEFAULT_VREF 1100 // Default Vref in mV; calibrate if possible
+#define NO_OF_SAMPLES 64  // Number of samples for averaging
 
 uint8_t esp_mac[6];
 static const char *TAG = "ESP-NOW RX";
@@ -37,6 +44,36 @@ extern "C"
 }
 
 void delay(uint32_t millis) { vTaskDelay(millis / portTICK_PERIOD_MS); }
+
+float getBatteryVoltage(void)
+{
+    static esp_adc_cal_characteristics_t adc_chars;
+    static bool is_calibrated = false;
+
+    // Configure ADC1 only once
+    if (!is_calibrated)
+    {
+        adc1_config_width(ADC_WIDTH);
+        adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
+        // Characterize ADC at attenuation level
+        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH, DEFAULT_VREF, &adc_chars);
+        is_calibrated = true;
+    }
+
+    uint32_t adc_reading = 0;
+    // Multisampling
+    for (int i = 0; i < NO_OF_SAMPLES; i++)
+    {
+        adc_reading += adc1_get_raw(ADC_CHANNEL);
+    }
+    adc_reading /= NO_OF_SAMPLES;
+
+    // Convert ADC reading to voltage in millivolts
+    uint32_t voltage_mv = esp_adc_cal_raw_to_voltage(adc_reading, &adc_chars);
+
+    // Return voltage in volts
+    return voltage_mv / 1000.0f;
+}
 
 static const GFXfont *selectFontForText(const char *text, uint16_t availWidth, uint16_t availHeight)
 {
@@ -127,7 +164,7 @@ void esp_now_recv_callback(const esp_now_recv_info_t *esp_now_info, const uint8_
     uint16_t lineSpacing = LINE_SPACING;
     uint16_t availHeightForName = 150;
 
-    // --- Display first name ---
+    //  Display first name
     if (strlen(first_name) > 0)
     {
         const GFXfont *fontForFirst = selectFontForText(first_name_clean, dispWidth, availHeightForName);
@@ -136,7 +173,7 @@ void esp_now_recv_callback(const esp_now_recv_info_t *esp_now_info, const uint8_
         currentY += lineSpacing; // extra gap after the first name
     }
 
-    // --- Display last name ---
+    //  Display last name
     if (strlen(last_name) > 0)
     {
         const GFXfont *fontForLast = selectFontForText(last_name_clean, dispWidth, availHeightForName);
@@ -145,7 +182,7 @@ void esp_now_recv_callback(const esp_now_recv_info_t *esp_now_info, const uint8_
         currentY += lineSpacing;
     }
 
-    // --- Display additional info ---
+    //  Display additional info
     if (strlen(additional_info) > 0)
     {
         display.setFont(&Roboto_Condensed_SemiBold40pt7b);
@@ -169,6 +206,7 @@ void esp_now_recv_callback(const esp_now_recv_info_t *esp_now_info, const uint8_
     // turn off display power
     gpio_set_level(GPIO_NUM_2, 0);
 }
+
 void wifi_sta_init(void)
 {
     esp_err_t ret = nvs_flash_init();
@@ -204,109 +242,101 @@ void wifi_sta_init(void)
  */
 void qr_eink_display(esp_qrcode_handle_t qrcode)
 {
-    // Clear the display to white.
+    // Clear the display.
     display.fillScreen(EPD_WHITE);
+    int dispW = display.width(), dispH = display.height();
+    int leftW = dispW / 2;
 
-    int dispWidth = display.width();
-    int dispHeight = display.height();
-
-    // ----- Left Region: QR Code and Top Text -----
-    // Define left region width (approximately half the display).
-    int leftRegionWidth = dispWidth / 2;
-
-    // Set up the top text for the left region.
-    const char *leftTopText = "1) Connect to Wi-Fi";
-    int16_t txtX, txtY;
-    uint16_t txtW, txtH;
+    //  Left Region: Wi-Fi Credentials and QR Code
     display.setTextSize(3);
-    display.getTextBounds(leftTopText, 0, 0, &txtX, &txtY, &txtW, &txtH);
-    // Center the text horizontally in the left region; set a small top margin.
-    int leftTextX = (leftRegionWidth - txtW) / 2;
-    int leftTextY = txtH + 5; // 5-pixel margin at the top.
-    display.setCursor(leftTextX, leftTextY);
-    display.println(leftTopText);
+    const char *leftLines[] = {
+        "1) Connect to Wi-Fi:",
+        "Meet Ink Controller",
+        "password: hesloheslo",
+        "or",
+        "scan QR to connect"};
+    const int nLeft = sizeof(leftLines) / sizeof(leftLines[0]);
+    int leftY = 5;
+    int16_t tx, ty;
+    uint16_t tw, th;
+    // Print each left line, centered in the left half.
+    for (int i = 0; i < nLeft; i++)
+    {
+        display.getTextBounds(leftLines[i], 0, 0, &tx, &ty, &tw, &th);
+        int xPos = (leftW - tw) / 2;
+        if (i < 3)
+        {
+            display.setCursor(xPos, leftY + th);
+            leftY += th + 10;
+        }
+        else
+        {
+            display.setCursor(xPos, leftY + 2 * th);
+            leftY += 2 * th + 10;
+        }
+        display.println(leftLines[i]);
+    }
 
-    // Determine area available for drawing the QR code (left region).
-    // Leave additional margin below the text.
-    int qrAreaTop = leftTextY + 50;
-    int availableHeight = dispHeight - qrAreaTop - 10; // bottom margin of 10 pixels
-    int availableWidth = leftRegionWidth - 20;         // side margins (10 pixels each)
-
-    // Get the QR code matrix size.
+    //  QR Code: Scaled to about 200x200 pixels
+    int qrTop = leftY + 40;
     int qrSize = esp_qrcode_get_size(qrcode);
-    // Set module size to fit within the available area.
-    int moduleSize = (availableWidth < availableHeight ? availableWidth : availableHeight) / qrSize;
+    // Set module size such that overall QR code is approximately 200 pixels wide.
+    int moduleSize = 200 / qrSize;
     if (moduleSize < 1)
+    {
         moduleSize = 1;
+    }
     int qrDrawSize = qrSize * moduleSize;
-    // Center the QR code horizontally in the left region.
-    int qrStartX = ((leftRegionWidth - qrDrawSize) / 2);
-    // Place the QR code just below the top text.
-    int qrStartY = qrAreaTop;
+    int qrX = (leftW - qrDrawSize) / 2;
 
-    // Draw the QR code modules.
+    // Draw each QR module.
     for (int y = 0; y < qrSize; y++)
     {
         for (int x = 0; x < qrSize; x++)
         {
+            int pixelX = qrX + x * moduleSize;
+            int pixelY = qrTop + y * moduleSize;
             bool module = esp_qrcode_get_module(qrcode, x, y);
-            int pixelX = qrStartX + x * moduleSize;
-            int pixelY = qrStartY + y * moduleSize;
-            if (module)
-            {
-                display.fillRect(pixelX, pixelY, moduleSize, moduleSize, EPD_BLACK);
-            }
-            else
-            {
-                display.fillRect(pixelX, pixelY, moduleSize, moduleSize, EPD_WHITE);
-            }
+            display.fillRect(pixelX, pixelY, moduleSize, moduleSize, module ? EPD_BLACK : EPD_WHITE);
         }
     }
 
-    // ----- Right Region: Instructional Text -----
-    // Define the right region boundaries.
-    int rightRegionX = dispWidth / 2;
-    int rightRegionWidth = dispWidth - rightRegionX - 10; // 10-pixel right margin
+    //  Right Region: Instructional Text
+    int rightX = dispW / 2, rightW = dispW - rightX - 10;
+    const char *rightLines[] = {
+        "2) Access the",
+        "webpage on URL:",
+        "meetink.local",
+        "or",
+        "http://192.168.4.1"};
+    const int nRight = sizeof(rightLines) / sizeof(rightLines[0]);
+    display.getTextBounds("Ag", 0, 0, &tx, &ty, &tw, &th);
+    int lineHeight = th, spacing = 10;
+    int totalHeight = nRight * lineHeight + (nRight - 1) * spacing;
+    int rightY = 5;
 
-    // Text lines to be displayed.
-    const char *rightLine1 = "2) Access the";
-    const char *rightLine2 = "webpage on URL:";
-    const char *rightLine3 = "meetink.local";
-    const char *rightLine4 = "or";
-    const char *rightLine5 = "http://192.168.4.1";
-
-    // Determine text height using a sample string.
-    int16_t tmpX, tmpY;
-    uint16_t tmpW, tmpH;
-    display.getTextBounds("Ag", 0, 0, &tmpX, &tmpY, &tmpW, &tmpH);
-    int lineHeight = tmpH;
-    int lineSpacing = 5; // Spacing between lines
-
-    // Calculate total text block height (4 lines with spacing between them).
-    int totalTextHeight = lineHeight * 10 + lineSpacing * 3;
-    // Vertically center the text block in the display.
-    int rightStartY = (dispHeight - totalTextHeight) / 2;
-
-    // Helper lambda to center text within the right region.
-    auto centerAndPrint = [&](const char *text, int yPos)
+    auto centerAndPrint = [&](const char *txt, int yPos)
     {
-        int16_t rx, ry;
-        uint16_t rw, rh;
-        display.getTextBounds(text, 0, 0, &rx, &ry, &rw, &rh);
-        int xPos = rightRegionX + (rightRegionWidth - rw) / 2;
-        display.setCursor(xPos, yPos + rh);
-        display.println(text);
+        display.getTextBounds(txt, 0, 0, &tx, &ty, &tw, &th);
+        int xPos = rightX + (rightW - tw) / 2;
+        display.setCursor(xPos, yPos + th);
+        display.println(txt);
     };
 
-    centerAndPrint(rightLine1, rightStartY);
-    centerAndPrint(rightLine2, rightStartY + lineHeight + lineSpacing);
-    centerAndPrint(rightLine3, rightStartY + 3 * (lineHeight + lineSpacing));
-    centerAndPrint(rightLine4, rightStartY + 5 * (lineHeight + lineSpacing));
-    centerAndPrint(rightLine5, rightStartY + 7 * (lineHeight + lineSpacing));
-
-    // Refresh the display so that all drawn elements become visible.
+    for (int i = 0; i < nRight; i++)
+    {
+        if (i < 2)
+        {
+            centerAndPrint(rightLines[i], rightY + i * (lineHeight + spacing));
+        }
+        else
+        {
+            centerAndPrint(rightLines[i], rightY + i * (lineHeight + spacing + 20));
+        }
+    }
     display.update();
 }
+
 void app_main(void)
 {
     wifi_sta_init();
@@ -325,8 +355,7 @@ void app_main(void)
 
     // Configure the QR code parameters.
     esp_qrcode_config_t cfg = ESP_QRCODE_CONFIG_DEFAULT();
-    cfg.display_func = qr_eink_display; // Use our custom display callback
-    // cfg.max_qrcode_version = 3;                // Use a small version since the URL is short
+    cfg.display_func = qr_eink_display;        // Use our custom display callback
     cfg.qrcode_ecc_level = ESP_QRCODE_ECC_MED; // Set medium error correction level
 
     // Define the Wi‑Fi credentials using the standard QR code format.
@@ -336,13 +365,12 @@ void app_main(void)
     esp_err_t ret = esp_qrcode_generate(&cfg, qrText);
     if (ret == ESP_OK)
     {
-        printf("QR code generated and displayed on the eInk.\n");
+        printf("QR code generated and displayed on the EInk.\n");
     }
     else
     {
         printf("Failed to generate QR code. Error: %d\n", ret);
     }
-
-    display.update();
+    // Turn off power for the EInk display
     gpio_set_level(GPIO_NUM_2, 0);
 }
