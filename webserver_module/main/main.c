@@ -20,6 +20,9 @@
 #include <esp_system.h>
 #include "esp_now.h"
 
+#include <driver/adc.h>
+#include "esp_adc_cal.h"
+
 #include "webserver.h"
 #include "text_decode_utils.h"
 
@@ -32,6 +35,12 @@
 #define EXAMPLE_ESP_WIFI_PASS CONFIG_ESP_WIFI_PASSWORD
 #define EXAMPLE_ESP_WIFI_CHANNEL CONFIG_ESP_WIFI_CHANNEL
 #define EXAMPLE_MAX_STA_CONN CONFIG_ESP_MAX_STA_CONN
+
+#define ADC_CHANNEL ADC1_CHANNEL_6 // GPIO34 corresponds to ADC1_CHANNEL_6
+#define ADC_ATTEN ADC_ATTEN_DB_11
+#define ADC_WIDTH ADC_WIDTH_BIT_12
+#define DEFAULT_VREF 1100 // Default Vref in mV; calibrate if possible
+#define NO_OF_SAMPLES 64  // Number of samples for averaging
 
 static const char *TAG = "webserver";
 
@@ -60,6 +69,36 @@ static void init_mdns(void)
         ESP_LOGE(TAG, "mDNS service add failed: %d", err);
     }
     ESP_LOGI(TAG, "mDNS initialized");
+}
+
+float getBatteryVoltage(void)
+{
+    static esp_adc_cal_characteristics_t adc_chars;
+    static bool is_calibrated = false;
+
+    // Configure ADC1 only once
+    if (!is_calibrated)
+    {
+        adc1_config_width(ADC_WIDTH);
+        adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
+        // Characterize ADC at attenuation level
+        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH, DEFAULT_VREF, &adc_chars);
+        is_calibrated = true;
+    }
+
+    uint32_t adc_reading = 0;
+    // Multisampling
+    for (int i = 0; i < NO_OF_SAMPLES; i++)
+    {
+        adc_reading += adc1_get_raw(ADC_CHANNEL);
+    }
+    adc_reading /= NO_OF_SAMPLES;
+
+    // Convert ADC reading to voltage in millivolts
+    uint32_t voltage_mv = esp_adc_cal_raw_to_voltage(adc_reading, &adc_chars);
+
+    // Return voltage in volts
+    return voltage_mv / 1000.0f;
 }
 
 /* AP Mode Functions */

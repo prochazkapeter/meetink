@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Badge Text Editor</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #4449db;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            width: 90%;
+            max-width: 600px;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            width: 80%;
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #4449db;
+            border: none;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .mac-block {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #f1f1f1;
+            border-radius: 50px;
+        }
+
+        .mac-block h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Badge Text Editor</h1>
+
+        <!-- Dynamic MAC forms will be injected here -->
+        <!-- {{MAC_LIST}} -->
+
+        <h2 style="margin-top: 40px;">Register New Badge</h2>
+        <form id="macForm">
+            <input type="text" id="mac_address" placeholder="format: AA:BB:CC:DD:EE:FF">
+            <button type="submit">Register</button>
+        </form>
+    </div>
+
+    <script>
+        document.getElementById('macForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const mac = document.getElementById('mac_address').value.trim();
+            const response = await fetch('/addmac', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac })
+            });
+            if (response.ok) {
+                console.log(`MAC ${mac} registered successfully.`);
+                setTimeout(() => location.reload(), 1000);
+            } else {
+                console.error("Failed to register MAC. Check format.");
+            }
+        });
+
+        async function sendText(e, mac) {
+            e.preventDefault();
+            const form = e.target;
+            const data = {
+                mac: mac,
+                first_name: form.first_name.value,
+                last_name: form.last_name.value,
+                additional_info: form.additional_info.value
+            };
+            const response = await fetch('/sendtext', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (response.ok) {
+                console.log(`Text sent to ${mac}. Data:`, data);
+            } else {
+                console.error(`Failed to send to ${mac}`);
+            }
+        }
+
+        async function deleteMac(mac) {
+            if (!confirm(`Delete ${mac}?`)) return;
+            const response = await fetch('/deletemac', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac })
+            });
+            if (response.ok) {
+                console.log(`MAC ${mac} deleted.`);
+                setTimeout(() => location.reload(), 500);
+            } else {
+                console.error(`Failed to delete MAC: ${mac}`);
+            }
+        }
+    </script>
+</body>
+
+</html>
