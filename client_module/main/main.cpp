@@ -7,8 +7,6 @@
 #include "nvs_flash.h"
 #include "esp_now.h"
 #include "driver/gpio.h"
-#include <driver/adc.h>
-#include "esp_adc_cal.h"
 #include "cJSON.h"
 #include "qrcode.h"
 #include "text_decode_utils.h"
@@ -29,11 +27,6 @@ Gdew075T7 display(io); // 7.5 inch grayscale
 
 #define Y_OFFSET 40
 #define LINE_SPACING 50
-#define ADC_CHANNEL ADC1_CHANNEL_6 // GPIO34 corresponds to ADC1_CHANNEL_6
-#define ADC_ATTEN ADC_ATTEN_DB_11
-#define ADC_WIDTH ADC_WIDTH_BIT_12
-#define DEFAULT_VREF 1100 // Default Vref in mV; calibrate if possible
-#define NO_OF_SAMPLES 64  // Number of samples for averaging
 
 uint8_t esp_mac[6];
 static const char *TAG = "ESP-NOW RX";
@@ -44,36 +37,6 @@ extern "C"
 }
 
 void delay(uint32_t millis) { vTaskDelay(millis / portTICK_PERIOD_MS); }
-
-float getBatteryVoltage(void)
-{
-    static esp_adc_cal_characteristics_t adc_chars;
-    static bool is_calibrated = false;
-
-    // Configure ADC1 only once
-    if (!is_calibrated)
-    {
-        adc1_config_width(ADC_WIDTH);
-        adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
-        // Characterize ADC at attenuation level
-        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH, DEFAULT_VREF, &adc_chars);
-        is_calibrated = true;
-    }
-
-    uint32_t adc_reading = 0;
-    // Multisampling
-    for (int i = 0; i < NO_OF_SAMPLES; i++)
-    {
-        adc_reading += adc1_get_raw(ADC_CHANNEL);
-    }
-    adc_reading /= NO_OF_SAMPLES;
-
-    // Convert ADC reading to voltage in millivolts
-    uint32_t voltage_mv = esp_adc_cal_raw_to_voltage(adc_reading, &adc_chars);
-
-    // Return voltage in volts
-    return voltage_mv / 1000.0f;
-}
 
 static const GFXfont *selectFontForText(const char *text, uint16_t availWidth, uint16_t availHeight)
 {
@@ -244,7 +207,7 @@ void qr_eink_display(esp_qrcode_handle_t qrcode)
 {
     // Clear the display.
     display.fillScreen(EPD_WHITE);
-    int dispW = display.width(), dispH = display.height();
+    int dispW = display.width();
     int leftW = dispW / 2;
 
     //  Left Region: Wi-Fi Credentials and QR Code
@@ -308,11 +271,12 @@ void qr_eink_display(esp_qrcode_handle_t qrcode)
         "webpage on URL:",
         "meetink.local",
         "or",
-        "http://192.168.4.1"};
+        "http://192.168.4.1",
+        "3) Register display:",
+    };
     const int nRight = sizeof(rightLines) / sizeof(rightLines[0]);
     display.getTextBounds("Ag", 0, 0, &tx, &ty, &tw, &th);
     int lineHeight = th, spacing = 10;
-    int totalHeight = nRight * lineHeight + (nRight - 1) * spacing;
     int rightY = 5;
 
     auto centerAndPrint = [&](const char *txt, int yPos)
@@ -329,11 +293,21 @@ void qr_eink_display(esp_qrcode_handle_t qrcode)
         {
             centerAndPrint(rightLines[i], rightY + i * (lineHeight + spacing));
         }
-        else
+        else if (i < 5)
         {
             centerAndPrint(rightLines[i], rightY + i * (lineHeight + spacing + 20));
         }
+        else
+        {
+            centerAndPrint(rightLines[i], rightY + i * (lineHeight + spacing + 20) + 50);
+        }
     }
+    static char mac_str[18];
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2],
+             mac[3], mac[4], mac[5]);
+    centerAndPrint(mac_str, rightY + (nRight) * (lineHeight + spacing + 20) + 50);
     display.update();
 }
 
