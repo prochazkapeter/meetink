@@ -1357,7 +1357,7 @@ size_t Adafruit_GFX::write(uint8_t c)
 {
   if (!gfxFont)
   { // 'Classic' built-in font
-    printf("write(%d) Custom font\n", c);
+    // printf("write(%d) Custom font\n", c);
     if (c == '\n')
     {                             // Newline?
       cursor_x = 0;               // Reset x to zero,

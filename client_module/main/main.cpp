@@ -7,6 +7,9 @@
 #include "nvs_flash.h"
 #include "esp_now.h"
 #include "driver/gpio.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 #include "cJSON.h"
 #include "qrcode.h"
 #include "text_decode_utils.h"
@@ -28,12 +31,71 @@ Gdew075T7 display(io); // 7.5 inch grayscale
 #define Y_OFFSET 40
 #define LINE_SPACING 50
 
+// battery measurement
+#define ADC_EXAMPLE_CALI_SCHEME ESP_ADC_CAL_VAL_EFUSE_VREF
+#define EXAMPLE_ADC_ATTEN ADC_ATTEN_DB_12
+#define ADC1_EXAMPLE_CHAN0 ADC_CHANNEL_6
+#define DIV_RATIO (1.0f + 1.3f) / 1.3f
+static int adc_raw;
+static int voltage;
+static float bat_voltage;
+static bool example_adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle);
+static void example_adc_calibration_deinit(adc_cali_handle_t handle);
+
 uint8_t esp_mac[6];
 static const char *TAG = "ESP-NOW RX";
 
 extern "C"
 {
     void app_main();
+}
+
+static bool example_adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle)
+{
+    adc_cali_handle_t handle = NULL;
+    esp_err_t ret = ESP_FAIL;
+    bool calibrated = false;
+
+#if ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    if (!calibrated)
+    {
+        ESP_LOGI(TAG, "calibration scheme version is %s", "Line Fitting");
+        adc_cali_line_fitting_config_t cali_config = {
+            .unit_id = unit,
+            .atten = atten,
+            .bitwidth = ADC_BITWIDTH_DEFAULT,
+        };
+        ret = adc_cali_create_scheme_line_fitting(&cali_config, &handle);
+        if (ret == ESP_OK)
+        {
+            calibrated = true;
+        }
+    }
+#endif
+
+    *out_handle = handle;
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "Calibration Success");
+    }
+    else if (ret == ESP_ERR_NOT_SUPPORTED || !calibrated)
+    {
+        ESP_LOGW(TAG, "eFuse not burnt, skip software calibration");
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Invalid arg or no memory");
+    }
+
+    return calibrated;
+}
+
+static void example_adc_calibration_deinit(adc_cali_handle_t handle)
+{
+#if ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    ESP_LOGI(TAG, "deregister %s calibration scheme", "Line Fitting");
+    ESP_ERROR_CHECK(adc_cali_delete_scheme_line_fitting(handle));
+#endif
 }
 
 void delay(uint32_t millis) { vTaskDelay(millis / portTICK_PERIOD_MS); }
@@ -308,6 +370,11 @@ void qr_eink_display(esp_qrcode_handle_t qrcode)
     snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2],
              mac[3], mac[4], mac[5]);
     centerAndPrint(mac_str, rightY + (nRight) * (lineHeight + spacing + 20) + 50);
+    static char bat_str[5];
+    sprintf(bat_str, "%0.2f", bat_voltage / 1000.0f);
+    display.setCursor(0, 5);
+    display.setTextSize(1);
+    display.println(bat_str);
     display.update();
 }
 
@@ -316,6 +383,26 @@ void app_main(void)
     wifi_sta_init();
     esp_now_init();
     esp_now_register_recv_cb(esp_now_recv_callback);
+
+    // voltage measurement
+    //-------------ADC1 Init---------------//
+    adc_oneshot_unit_handle_t adc1_handle;
+    adc_oneshot_unit_init_cfg_t init_config1 = {
+        .unit_id = ADC_UNIT_1,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
+
+    //-------------ADC1 Config---------------//
+    adc_oneshot_chan_cfg_t config = {
+        .atten = EXAMPLE_ADC_ATTEN,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC1_EXAMPLE_CHAN0, &config));
+
+    //-------------ADC1 Calibration Init---------------//
+    adc_cali_handle_t adc1_cali_chan0_handle = NULL;
+    adc_cali_handle_t adc1_cali_chan1_handle = NULL;
+    bool do_calibration1_chan0 = example_adc_calibration_init(ADC_UNIT_1, ADC1_EXAMPLE_CHAN0, EXAMPLE_ADC_ATTEN, &adc1_cali_chan0_handle);
 
     // power for EInk display
     gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
@@ -335,16 +422,34 @@ void app_main(void)
     // Define the Wi‑Fi credentials using the standard QR code format.
     const char *qrText = "WIFI:T:WPA;S:Meet Ink Controller;P:hesloheslo;;";
 
-    // Generate and display the QR code.
-    esp_err_t ret = esp_qrcode_generate(&cfg, qrText);
-    if (ret == ESP_OK)
+    while (1)
     {
-        printf("QR code generated and displayed on the EInk.\n");
+        ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_EXAMPLE_CHAN0, &adc_raw));
+        ESP_LOGI(TAG, "ADC%d Channel[%d] Raw Data: %d", ADC_UNIT_1 + 1, ADC1_EXAMPLE_CHAN0, adc_raw);
+        if (do_calibration1_chan0)
+        {
+            ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_chan0_handle, adc_raw, &voltage));
+            bat_voltage = voltage * DIV_RATIO;
+            ESP_LOGI(TAG, "ADC%d Channel[%d] Cali Voltage: %.2f V", ADC_UNIT_1 + 1, ADC1_EXAMPLE_CHAN0, bat_voltage / 1000.0f);
+        }
+        // Generate and display the QR code.
+        esp_err_t ret = esp_qrcode_generate(&cfg, qrText);
+        if (ret == ESP_OK)
+        {
+            printf("QR code generated and displayed on the EInk.\n");
+        }
+        else
+        {
+            printf("Failed to generate QR code. Error: %d\n", ret);
+        }
+        // Turn off power for the EInk display
+        gpio_set_level(GPIO_NUM_2, 0);
+        vTaskDelay(pdMS_TO_TICKS(60000 * 60));
+        gpio_set_level(GPIO_NUM_2, 1);
     }
-    else
+    ESP_ERROR_CHECK(adc_oneshot_del_unit(adc1_handle));
+    if (do_calibration1_chan0)
     {
-        printf("Failed to generate QR code. Error: %d\n", ret);
+        example_adc_calibration_deinit(adc1_cali_chan0_handle);
     }
-    // Turn off power for the EInk display
-    gpio_set_level(GPIO_NUM_2, 0);
 }
