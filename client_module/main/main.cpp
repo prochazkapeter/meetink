@@ -36,6 +36,9 @@ Gdew075T7 display(io); // 7.5 inch grayscale
 #define EXAMPLE_ADC_ATTEN ADC_ATTEN_DB_12
 #define ADC1_EXAMPLE_CHAN0 ADC_CHANNEL_6
 #define DIV_RATIO (1.0f + 1.3f) / 1.3f
+static adc_oneshot_unit_handle_t adc1_handle;
+static adc_cali_handle_t adc1_cali_chan0_handle;
+static bool do_calibration1_chan0;
 static int adc_raw;
 static int voltage;
 static float bat_voltage;
@@ -96,6 +99,37 @@ static void example_adc_calibration_deinit(adc_cali_handle_t handle)
     ESP_LOGI(TAG, "deregister %s calibration scheme", "Line Fitting");
     ESP_ERROR_CHECK(adc_cali_delete_scheme_line_fitting(handle));
 #endif
+}
+
+void adc_init(void)
+{
+    //-------------ADC1 Init---------------//
+    adc_oneshot_unit_init_cfg_t init_config1 = {
+        .unit_id = ADC_UNIT_1,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
+
+    //-------------ADC1 Config---------------//
+    adc_oneshot_chan_cfg_t config = {
+        .atten = EXAMPLE_ADC_ATTEN,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC1_EXAMPLE_CHAN0, &config));
+
+    //-------------ADC1 Calibration Init---------------//
+    do_calibration1_chan0 = example_adc_calibration_init(ADC_UNIT_1, ADC1_EXAMPLE_CHAN0, EXAMPLE_ADC_ATTEN, &adc1_cali_chan0_handle);
+}
+
+void measure_batt_voltage(void)
+{
+    ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_EXAMPLE_CHAN0, &adc_raw));
+    ESP_LOGI(TAG, "ADC%d Channel[%d] Raw Data: %d", ADC_UNIT_1 + 1, ADC1_EXAMPLE_CHAN0, adc_raw);
+    if (do_calibration1_chan0)
+    {
+        ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_chan0_handle, adc_raw, &voltage));
+        bat_voltage = voltage * DIV_RATIO;
+        ESP_LOGI(TAG, "ADC%d Channel[%d] Cali Voltage: %.2f V", ADC_UNIT_1 + 1, ADC1_EXAMPLE_CHAN0, bat_voltage / 1000.0f);
+    }
 }
 
 void delay(uint32_t millis) { vTaskDelay(millis / portTICK_PERIOD_MS); }
@@ -219,6 +253,14 @@ void esp_now_recv_callback(const esp_now_recv_info_t *esp_now_info, const uint8_
         display.setCursor(infoX, infoY + tbh);
         display.println(additional_info_clean);
     }
+    // print battery voltage
+    measure_batt_voltage();
+    static char bat_str[6];
+    sprintf(bat_str, "%0.2fV", bat_voltage / 1000.0f);
+    display.setFont(NULL);
+    display.setCursor(0, 0);
+    display.setTextSize(1);
+    display.println(bat_str);
     // update display
     display.update();
 
@@ -370,9 +412,11 @@ void qr_eink_display(esp_qrcode_handle_t qrcode)
     snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2],
              mac[3], mac[4], mac[5]);
     centerAndPrint(mac_str, rightY + (nRight) * (lineHeight + spacing + 20) + 50);
-    static char bat_str[5];
-    sprintf(bat_str, "%0.2f", bat_voltage / 1000.0f);
-    display.setCursor(0, 5);
+    // print battery voltage
+    measure_batt_voltage();
+    static char bat_str[6];
+    sprintf(bat_str, "%0.2fV", bat_voltage / 1000.0f);
+    display.setCursor(0, 0);
     display.setTextSize(1);
     display.println(bat_str);
     display.update();
@@ -383,31 +427,11 @@ void app_main(void)
     wifi_sta_init();
     esp_now_init();
     esp_now_register_recv_cb(esp_now_recv_callback);
-
-    // voltage measurement
-    //-------------ADC1 Init---------------//
-    adc_oneshot_unit_handle_t adc1_handle;
-    adc_oneshot_unit_init_cfg_t init_config1 = {
-        .unit_id = ADC_UNIT_1,
-    };
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
-
-    //-------------ADC1 Config---------------//
-    adc_oneshot_chan_cfg_t config = {
-        .atten = EXAMPLE_ADC_ATTEN,
-        .bitwidth = ADC_BITWIDTH_DEFAULT,
-    };
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC1_EXAMPLE_CHAN0, &config));
-
-    //-------------ADC1 Calibration Init---------------//
-    adc_cali_handle_t adc1_cali_chan0_handle = NULL;
-    adc_cali_handle_t adc1_cali_chan1_handle = NULL;
-    bool do_calibration1_chan0 = example_adc_calibration_init(ADC_UNIT_1, ADC1_EXAMPLE_CHAN0, EXAMPLE_ADC_ATTEN, &adc1_cali_chan0_handle);
+    adc_init();
 
     // power for EInk display
     gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
     gpio_set_level(GPIO_NUM_2, 1);
-
     ESP_LOGI(TAG, "CalEPD version %s", CALEPD_VERSION);
     display.init(false);
     display.setRotation(2);
@@ -424,23 +448,15 @@ void app_main(void)
 
     while (1)
     {
-        ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC1_EXAMPLE_CHAN0, &adc_raw));
-        ESP_LOGI(TAG, "ADC%d Channel[%d] Raw Data: %d", ADC_UNIT_1 + 1, ADC1_EXAMPLE_CHAN0, adc_raw);
-        if (do_calibration1_chan0)
-        {
-            ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_chan0_handle, adc_raw, &voltage));
-            bat_voltage = voltage * DIV_RATIO;
-            ESP_LOGI(TAG, "ADC%d Channel[%d] Cali Voltage: %.2f V", ADC_UNIT_1 + 1, ADC1_EXAMPLE_CHAN0, bat_voltage / 1000.0f);
-        }
         // Generate and display the QR code.
         esp_err_t ret = esp_qrcode_generate(&cfg, qrText);
         if (ret == ESP_OK)
         {
-            printf("QR code generated and displayed on the EInk.\n");
+            ESP_LOGI(TAG, "QR code generated and displayed on the EInk.\n");
         }
         else
         {
-            printf("Failed to generate QR code. Error: %d\n", ret);
+            ESP_LOGE(TAG, "Failed to generate QR code. Error: %d\n", ret);
         }
         // Turn off power for the EInk display
         gpio_set_level(GPIO_NUM_2, 0);
