@@ -135,6 +135,22 @@
                 console.error(`Failed to delete MAC: ${mac}`);
             }
         }
+
+        async function clearBadge(mac) {
+            if (!confirm(`Clear text on ${mac}?`)) return;
+            const response = await fetch('/clearbadge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac })
+            });
+            if (response.ok) {
+                console.log(`Badge ${mac} cleared.`);
+                setTimeout(() => location.reload(), 500);
+            } else {
+                console.error(`Failed to clear badge: ${mac}`);
+            }
+        }
+
     </script>
 </body>
 

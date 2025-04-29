@@ -28,6 +28,10 @@ Gdew075T7 display(io); // 7.5 inch grayscale
 #include <Fonts/Roboto_Condensed_SemiBold60pt7b.h>
 #include <Fonts/Roboto_Condensed_SemiBold75pt7b.h>
 
+/* WiFi credentials configured via menuconfig */
+#define EXAMPLE_ESP_WIFI_SSID CONFIG_ESP_WIFI_SSID
+#define EXAMPLE_ESP_WIFI_PASS CONFIG_ESP_WIFI_PASSWORD
+
 #define Y_OFFSET 40
 #define LINE_SPACING 50
 
@@ -194,84 +198,102 @@ void esp_now_recv_callback(const esp_now_recv_info_t *esp_now_info, const uint8_
     }
 
     // extract data from JSON
-    cJSON *first_name_item = cJSON_GetObjectItemCaseSensitive(json, "first_name");
-    cJSON *last_name_item = cJSON_GetObjectItemCaseSensitive(json, "last_name");
-    cJSON *additional_info_item = cJSON_GetObjectItemCaseSensitive(json, "additional_info");
-
-    const char *first_name = (cJSON_IsString(first_name_item) && first_name_item->valuestring) ? first_name_item->valuestring : "";
-    const char *last_name = (cJSON_IsString(last_name_item) && last_name_item->valuestring) ? last_name_item->valuestring : "";
-    const char *additional_info = (cJSON_IsString(additional_info_item) && additional_info_item->valuestring) ? additional_info_item->valuestring : "";
-
-    // Remove diacritics.
-    char *first_name_clean = remove_diacritics_utf8(first_name);
-    char *last_name_clean = remove_diacritics_utf8(last_name);
-    char *additional_info_clean = remove_diacritics_utf8(additional_info);
-
-    ESP_LOGI(TAG, "Parsed JSON - First Name: %s, Last Name: %s, Additional Info: %s",
-             first_name_clean, last_name_clean, additional_info_clean);
-
-    // turn on display power
-    gpio_set_level(GPIO_NUM_2, 1);
-    // Update the e-ink display
-    display.fillScreen(EPD_WHITE);
-    // Set font and text color as needed
-    display.setTextColor(EPD_BLACK);
-
-    uint16_t dispWidth = display.width();
-    uint16_t dispHeight = display.height();
-    uint16_t currentY = Y_OFFSET;
-    uint16_t lineSpacing = LINE_SPACING;
-    uint16_t availHeightForName = 150;
-
-    //  Display first name
-    if (strlen(first_name) > 0)
+    cJSON *clear_item = cJSON_GetObjectItemCaseSensitive(json, "clear");
+    if (clear_item != NULL)
     {
-        const GFXfont *fontForFirst = selectFontForText(first_name_clean, dispWidth, availHeightForName);
-        display.setFont(fontForFirst);
-        currentY += printCenteredLine(first_name_clean, currentY, dispWidth);
-        currentY += lineSpacing; // extra gap after the first name
+        // turn on display power
+        gpio_set_level(GPIO_NUM_2, 1);
+        // Update the e-ink display
+        display.fillScreen(EPD_WHITE);
+        // update display
+        display.update();
+        // Cleanup JSON and free allocated memory
+        cJSON_Delete(json);
+        free(json_str);
+        // turn off display power
+        gpio_set_level(GPIO_NUM_2, 0);
     }
-
-    //  Display last name
-    if (strlen(last_name) > 0)
+    else
     {
-        const GFXfont *fontForLast = selectFontForText(last_name_clean, dispWidth, availHeightForName);
-        display.setFont(fontForLast);
-        currentY += printCenteredLine(last_name_clean, currentY, dispWidth);
-        currentY += lineSpacing;
-    }
+        cJSON *first_name_item = cJSON_GetObjectItemCaseSensitive(json, "first_name");
+        cJSON *last_name_item = cJSON_GetObjectItemCaseSensitive(json, "last_name");
+        cJSON *additional_info_item = cJSON_GetObjectItemCaseSensitive(json, "additional_info");
 
-    //  Display additional info
-    if (strlen(additional_info) > 0)
-    {
-        display.setFont(&Roboto_Condensed_SemiBold40pt7b);
-        int16_t tbx, tby;
-        uint16_t tbw, tbh;
-        display.getTextBounds(additional_info_clean, 0, 0, &tbx, &tby, &tbw, &tbh);
-        uint16_t infoY = dispHeight - tbh - 20;
-        int16_t infoX = (dispWidth - tbw) / 2 - tbx;
-        display.setCursor(infoX, infoY + tbh);
-        display.println(additional_info_clean);
-    }
-    // print battery voltage
-    measure_batt_voltage();
-    static char bat_str[6];
-    sprintf(bat_str, "%0.2fV", bat_voltage / 1000.0f);
-    display.setFont(NULL);
-    display.setCursor(0, 0);
-    display.setTextSize(1);
-    display.println(bat_str);
-    // update display
-    display.update();
+        const char *first_name = (cJSON_IsString(first_name_item) && first_name_item->valuestring) ? first_name_item->valuestring : "";
+        const char *last_name = (cJSON_IsString(last_name_item) && last_name_item->valuestring) ? last_name_item->valuestring : "";
+        const char *additional_info = (cJSON_IsString(additional_info_item) && additional_info_item->valuestring) ? additional_info_item->valuestring : "";
 
-    // Cleanup JSON and free allocated memory
-    cJSON_Delete(json);
-    free(json_str);
-    free(first_name_clean);
-    free(last_name_clean);
-    free(additional_info_clean);
-    // turn off display power
-    gpio_set_level(GPIO_NUM_2, 0);
+        // Remove diacritics.
+        char *first_name_clean = remove_diacritics_utf8(first_name);
+        char *last_name_clean = remove_diacritics_utf8(last_name);
+        char *additional_info_clean = remove_diacritics_utf8(additional_info);
+
+        ESP_LOGI(TAG, "Parsed JSON - First Name: %s, Last Name: %s, Additional Info: %s",
+                 first_name_clean, last_name_clean, additional_info_clean);
+
+        // turn on display power
+        gpio_set_level(GPIO_NUM_2, 1);
+        // Update the e-ink display
+        display.fillScreen(EPD_WHITE);
+        // Set font and text color as needed
+        display.setTextColor(EPD_BLACK);
+
+        uint16_t dispWidth = display.width();
+        uint16_t dispHeight = display.height();
+        uint16_t currentY = Y_OFFSET;
+        uint16_t lineSpacing = LINE_SPACING;
+        uint16_t availHeightForName = 150;
+
+        //  Display first name
+        if (strlen(first_name) > 0)
+        {
+            const GFXfont *fontForFirst = selectFontForText(first_name_clean, dispWidth, availHeightForName);
+            display.setFont(fontForFirst);
+            currentY += printCenteredLine(first_name_clean, currentY, dispWidth);
+            currentY += lineSpacing; // extra gap after the first name
+        }
+
+        //  Display last name
+        if (strlen(last_name) > 0)
+        {
+            const GFXfont *fontForLast = selectFontForText(last_name_clean, dispWidth, availHeightForName);
+            display.setFont(fontForLast);
+            currentY += printCenteredLine(last_name_clean, currentY, dispWidth);
+            currentY += lineSpacing;
+        }
+
+        //  Display additional info
+        if (strlen(additional_info) > 0)
+        {
+            display.setFont(&Roboto_Condensed_SemiBold40pt7b);
+            int16_t tbx, tby;
+            uint16_t tbw, tbh;
+            display.getTextBounds(additional_info_clean, 0, 0, &tbx, &tby, &tbw, &tbh);
+            uint16_t infoY = dispHeight - tbh - 20;
+            int16_t infoX = (dispWidth - tbw) / 2 - tbx;
+            display.setCursor(infoX, infoY + tbh);
+            display.println(additional_info_clean);
+        }
+        // print battery voltage
+        measure_batt_voltage();
+        static char bat_str[6];
+        sprintf(bat_str, "%0.2fV", bat_voltage / 1000.0f);
+        display.setFont(NULL);
+        display.setCursor(0, 0);
+        display.setTextSize(1);
+        display.println(bat_str);
+        // update display
+        display.update();
+
+        // Cleanup JSON and free allocated memory
+        cJSON_Delete(json);
+        free(json_str);
+        free(first_name_clean);
+        free(last_name_clean);
+        free(additional_info_clean);
+        // turn off display power
+        gpio_set_level(GPIO_NUM_2, 0);
+    }
 }
 
 void wifi_sta_init(void)
@@ -318,8 +340,8 @@ void qr_eink_display(esp_qrcode_handle_t qrcode)
     display.setTextSize(3);
     const char *leftLines[] = {
         "1) Connect to Wi-Fi:",
-        "Meet Ink Controller",
-        "password: hesloheslo",
+        EXAMPLE_ESP_WIFI_SSID,
+        "password: " EXAMPLE_ESP_WIFI_PASS,
         "or",
         "scan QR to connect"};
     const int nLeft = sizeof(leftLines) / sizeof(leftLines[0]);
@@ -444,24 +466,28 @@ void app_main(void)
     cfg.qrcode_ecc_level = ESP_QRCODE_ECC_MED; // Set medium error correction level
 
     // Define the Wi‑Fi credentials using the standard QR code format.
-    const char *qrText = "WIFI:T:WPA;S:Meet Ink Controller;P:hesloheslo;;";
-
+    const char *qrText = "WIFI:T:WPA;S:" EXAMPLE_ESP_WIFI_SSID ";P:" EXAMPLE_ESP_WIFI_PASS ";;";
+    // Generate and display the QR code.
+    esp_err_t ret = esp_qrcode_generate(&cfg, qrText);
+    if (ret == ESP_OK)
+    {
+        ESP_LOGI(TAG, "QR code generated and displayed on the EInk.\n");
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Failed to generate QR code. Error: %d\n", ret);
+    }
     while (1)
     {
-        // Generate and display the QR code.
-        esp_err_t ret = esp_qrcode_generate(&cfg, qrText);
-        if (ret == ESP_OK)
-        {
-            ESP_LOGI(TAG, "QR code generated and displayed on the EInk.\n");
-        }
-        else
-        {
-            ESP_LOGE(TAG, "Failed to generate QR code. Error: %d\n", ret);
-        }
         // Turn off power for the EInk display
         gpio_set_level(GPIO_NUM_2, 0);
-        vTaskDelay(pdMS_TO_TICKS(60000 * 60));
+        // wait 6 hours
+        vTaskDelay(pdMS_TO_TICKS(60000 * 60 * 6));
+        // Turn on power for the EInk display
         gpio_set_level(GPIO_NUM_2, 1);
+        display.update();
+        ESP_LOGI(TAG, "Display refreshed.\n");
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
     ESP_ERROR_CHECK(adc_oneshot_del_unit(adc1_handle));
     if (do_calibration1_chan0)

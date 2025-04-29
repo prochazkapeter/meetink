@@ -46,9 +46,10 @@ char *generate_mac_blocks_html()
                      "<input type='text' name='last_name' placeholder='Last Name'><br>"
                      "<input type='text' name='additional_info' placeholder='Additional Info'><br>"
                      "<button type='submit'>Send</button>"
+                     "<button type='button' onclick='clearBadge(\"%s\")' style='margin-left:10px;background:#c96f10;'>Clear</button>"
                      "<button type='button' onclick='deleteMac(\"%s\")' style='margin-left:10px;background:#e74c3c;'>Delete</button>"
                      "</form></div>",
-                     mac, mac, mac);
+                     mac, mac, mac, mac);
             strcat(output, block);
         }
     }
@@ -365,6 +366,64 @@ static esp_err_t deletemac_post_handler(httpd_req_t *req)
     }
 }
 
+static esp_err_t clearbadge_post_handler(httpd_req_t *req)
+{
+    char buf[64];
+    int ret = httpd_req_recv(req, buf, req->content_len);
+    if (ret <= 0)
+    {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No data received");
+    }
+    buf[ret] = '\0';
+
+    cJSON *json = cJSON_Parse(buf);
+    if (!json)
+    {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+    }
+
+    cJSON *mac_item = cJSON_GetObjectItemCaseSensitive(json, "mac");
+    if (!cJSON_IsString(mac_item) || !mac_item->valuestring)
+    {
+        cJSON_Delete(json);
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing MAC");
+    }
+
+    const char *mac_str = mac_item->valuestring;
+    ESP_LOGI("ClearBadge", "Attempting to clear: %s", mac_str);
+
+    uint8_t target_mac[6];
+    if (sscanf(mac_str, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+               &target_mac[0], &target_mac[1], &target_mac[2],
+               &target_mac[3], &target_mac[4], &target_mac[5]) != 6)
+    {
+        cJSON_Delete(json);
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid MAC format");
+    }
+
+    // Format and send
+    cJSON *send_json = cJSON_CreateObject();
+    cJSON_AddStringToObject(send_json, "clear", "1");
+    char *send_str = cJSON_PrintUnformatted(send_json);
+    cJSON_Delete(send_json);
+    cJSON_Delete(json);
+
+    esp_err_t err = esp_now_send(target_mac, (uint8_t *)send_str, strlen(send_str));
+    free(send_str);
+
+    // Response
+    cJSON *resp_json = cJSON_CreateObject();
+    cJSON_AddStringToObject(resp_json, "status", esp_err_to_name(err));
+    char *resp_str = cJSON_PrintUnformatted(resp_json);
+    cJSON_Delete(resp_json);
+
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t res = httpd_resp_send(req, resp_str, HTTPD_RESP_USE_STRLEN);
+    free(resp_str);
+
+    return res;
+}
+
 // URI handler definitions
 static const httpd_uri_t index_uri = {
     .uri = "/",
@@ -390,6 +449,12 @@ static const httpd_uri_t deletemac_uri = {
     .handler = deletemac_post_handler,
     .user_ctx = NULL};
 
+static const httpd_uri_t clearbadge_uri = {
+    .uri = "/clearbadge",
+    .method = HTTP_POST,
+    .handler = clearbadge_post_handler,
+    .user_ctx = NULL};
+
 // Starts the HTTP server and registers URI handlers
 httpd_handle_t start_webserver(void)
 {
@@ -403,6 +468,7 @@ httpd_handle_t start_webserver(void)
         httpd_register_uri_handler(server, &sendtext_uri);
         httpd_register_uri_handler(server, &addmac_uri);
         httpd_register_uri_handler(server, &deletemac_uri);
+        httpd_register_uri_handler(server, &clearbadge_uri);
         ESP_LOGI(TAG, "HTTP server started successfully");
         return server;
     }

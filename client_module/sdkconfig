@@ -403,6 +403,13 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# Example Configuration
+#
+CONFIG_ESP_WIFI_SSID="Meet Ink Controller"
+CONFIG_ESP_WIFI_PASSWORD="eink1sgr8"
+# end of Example Configuration
+
+#
 # Display Configuration
 #
 
