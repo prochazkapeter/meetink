@@ -66,6 +66,15 @@
             margin-bottom: 10px;
             color: #333;
         }
+
+        .logo-block canvas {
+            display: none;
+            /* stays hidden until .style.display = 'block'  is called*/
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ccc;
+            margin-top: 8px;
+        }
     </style>
 </head>
 
@@ -149,6 +158,127 @@
             } else {
                 console.error(`Failed to clear badge: ${mac}`);
             }
+        }
+
+        const EINK_W = 800;
+        const EINK_H = 480;
+
+        // ─── Convert the 1-bit canvas into raw bytes ─────────────────────────────────
+        function canvasToBytes(canvas) {
+            const ctx = canvas.getContext('2d');
+            const img = ctx.getImageData(0, 0, EINK_W, EINK_H).data;
+            const bytes = new Uint8Array((EINK_W * EINK_H) / 8);
+            let byteIdx = 0, bitPos = 7;
+            bytes.fill(0);
+
+            for (let y = 0; y < EINK_H; y++) {
+                for (let x = 0; x < EINK_W; x++) {
+                    const idx = (y * EINK_W + x) * 4;
+                    if (img[idx] === 0) {              // black pixel
+                        bytes[byteIdx] |= (1 << bitPos);
+                    }
+                    bitPos--;
+                    if (bitPos < 0) {
+                        bitPos = 7;
+                        byteIdx++;
+                    }
+                }
+            }
+            return bytes;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.logo-block').forEach(block => {
+                const mac = block.dataset.mac;
+                const input = document.getElementById(`logoInput_${mac}`);
+                const canvas = document.getElementById(`logoPreview_${mac}`);
+                const btn = document.getElementById(`sendLogoBtn_${mac}`);
+
+                if (!input || !canvas || !btn) return;
+
+                input.addEventListener('change', async () => {
+                    const file = input.files[0];
+                    if (!file) return;
+
+                    await renderAndThreshold(file, canvas);
+                    canvas.style.display = 'block';
+                    btn.disabled = false;
+                });
+
+                btn.addEventListener('click', () => {
+                    uploadLogo(mac);
+                });
+            });
+        });
+
+        async function renderAndThreshold(file, canvas) {
+            // Create an <img> from the File blob
+            const img = new Image();
+            img.src = URL.createObjectURL(file);
+            await img.decode();
+
+            const ctx = canvas.getContext('2d');
+            // Clear to white
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, EINK_W, EINK_H);
+
+            // Compute scale to fit within 800×480 (no upscaling)
+            const scale = Math.min(EINK_W / img.width, EINK_H / img.height, 1);
+            const dw = Math.round(img.width * scale);
+            const dh = Math.round(img.height * scale);
+            const dx = Math.round((EINK_W - dw) / 2);
+            const dy = Math.round((EINK_H - dh) / 2);
+
+            // Draw the image centered
+            ctx.drawImage(img, dx, dy, dw, dh);
+
+            // Grab pixels and threshold
+            const imgData = ctx.getImageData(0, 0, EINK_W, EINK_H);
+            const d = imgData.data;
+            for (let i = 0; i < d.length; i += 4) {
+                // average RGB
+                const avg = (d[i] + d[i + 1] + d[i + 2]) / 3;
+                // black if <128, else white
+                const v = avg < 128 ? 0 : 255;
+                d[i] = d[i + 1] = d[i + 2] = v;
+                // leave alpha=255
+            }
+            // Put the thresholded image back
+            ctx.putImageData(imgData, 0, 0);
+        }
+
+        /**
+         * Grabs the 1-bit image from the canvas, packs it into a Blob,
+         * then sends it via XHR to /sendlogo with progress events.
+         */
+        function uploadLogo(mac) {
+            const canvas = document.getElementById(`logoPreview_${mac}`);
+            const progress = document.getElementById(`logoProgress_${mac}`);
+            const bytes = canvasToBytes(canvas);
+            // encode "AA:BB:CC:DD:EE:FF\n" as UTF-8
+            const header = new TextEncoder().encode(mac + "\n");
+            // combine header + image bytes
+            const payload = new Blob([header, bytes.buffer], { type: 'application/octet-stream' });
+
+            const xhttp = new XMLHttpRequest();
+
+            progress.style.display = 'block';
+            progress.value = 0;
+
+            xhttp.upload.addEventListener('progress', e => {
+                if (e.lengthComputable) progress.value = (e.loaded / e.total) * 100;
+            });
+
+            xhttp.addEventListener('loadend', () => {
+                alert(xhttp.status === 200 ? '✅ Logo uploaded!' : '❌ Upload failed');
+                setTimeout(() => {
+                    progress.style.display = 'none';
+                    progress.value = 0;
+                }, 1500);
+            });
+
+            xhttp.open('POST', '/sendlogo', true);
+            xhttp.send(payload);
         }
 
     </script>

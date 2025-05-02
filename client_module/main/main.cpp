@@ -13,6 +13,7 @@
 #include "cJSON.h"
 #include "qrcode.h"
 #include "text_decode_utils.h"
+#include "mbedtls/base64.h"
 
 // #include "freertos/FreeRTOS.h"
 // #include "freertos/task.h"
@@ -48,6 +49,14 @@ static int voltage;
 static float bat_voltage;
 static bool example_adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle);
 static void example_adc_calibration_deinit(adc_cali_handle_t handle);
+
+// ESP-NOW image data
+#define EINK_W 800
+#define EINK_H 480
+#define LOGO_BUF_SIZE ((EINK_W * EINK_H) / 8)
+// buffer & write-offset for incoming logo chunks
+static uint8_t logo_buf[LOGO_BUF_SIZE];
+static size_t logo_offset = 0;
 
 uint8_t esp_mac[6];
 static const char *TAG = "ESP-NOW RX";
@@ -177,122 +186,126 @@ static uint16_t printCenteredLine(const char *text, uint16_t startY, uint16_t av
 
 void esp_now_recv_callback(const esp_now_recv_info_t *esp_now_info, const uint8_t *data, int data_len)
 {
-    char *json_str = (char *)malloc(data_len + 1);
-    if (json_str == NULL)
+    // ── JSON-based control (clear/text) ────────────────────────────────
+    if (data_len > 0 && data[0] == '{')
     {
-        ESP_LOGE(TAG, "Memory allocation failed");
-        return;
-    }
+        // existing JSON handling (clear screen or draw text)...
+        char *json_str = (char *)malloc(data_len + 1);
+        if (!json_str)
+        {
+            ESP_LOGE(TAG, "OOM allocating JSON buffer");
+            return;
+        }
+        memcpy(json_str, data, data_len);
+        json_str[data_len] = '\0';
 
-    memcpy(json_str, data, data_len);
-    json_str[data_len] = '\0'; // terminating zero for string
-
-    ESP_LOGI(TAG, "Received string: %s", json_str);
-
-    cJSON *json = cJSON_Parse(json_str);
-    if (json == NULL)
-    {
-        ESP_LOGE(TAG, "Failed to parse JSON message");
+        cJSON *root = cJSON_Parse(json_str);
         free(json_str);
-        return;
-    }
+        if (!root)
+        {
+            ESP_LOGE(TAG, "Malformed JSON");
+            return;
+        }
 
-    // extract data from JSON
-    cJSON *clear_item = cJSON_GetObjectItemCaseSensitive(json, "clear");
-    if (clear_item != NULL)
-    {
-        // turn on display power
+        // Clear display?
+        if (cJSON_GetObjectItemCaseSensitive(root, "clear"))
+        {
+            gpio_set_level(GPIO_NUM_2, 1);
+            display.fillScreen(EPD_WHITE);
+            display.update();
+            gpio_set_level(GPIO_NUM_2, 0);
+            cJSON_Delete(root);
+            return;
+        }
+
+        // 1b) Text update
+        cJSON *first_item = cJSON_GetObjectItemCaseSensitive(root, "first_name");
+        cJSON *last_item = cJSON_GetObjectItemCaseSensitive(root, "last_name");
+        cJSON *add_item = cJSON_GetObjectItemCaseSensitive(root, "additional_info");
+
+        const char *first = cJSON_IsString(first_item) ? first_item->valuestring : "";
+        const char *last = cJSON_IsString(last_item) ? last_item->valuestring : "";
+        const char *add = cJSON_IsString(add_item) ? add_item->valuestring : "";
+
+        char *first_clean = remove_diacritics_utf8(first);
+        char *last_clean = remove_diacritics_utf8(last);
+        char *add_clean = remove_diacritics_utf8(add);
+
         gpio_set_level(GPIO_NUM_2, 1);
-        // Update the e-ink display
         display.fillScreen(EPD_WHITE);
-        // update display
-        display.update();
-        // Cleanup JSON and free allocated memory
-        cJSON_Delete(json);
-        free(json_str);
-        // turn off display power
-        gpio_set_level(GPIO_NUM_2, 0);
-    }
-    else
-    {
-        cJSON *first_name_item = cJSON_GetObjectItemCaseSensitive(json, "first_name");
-        cJSON *last_name_item = cJSON_GetObjectItemCaseSensitive(json, "last_name");
-        cJSON *additional_info_item = cJSON_GetObjectItemCaseSensitive(json, "additional_info");
-
-        const char *first_name = (cJSON_IsString(first_name_item) && first_name_item->valuestring) ? first_name_item->valuestring : "";
-        const char *last_name = (cJSON_IsString(last_name_item) && last_name_item->valuestring) ? last_name_item->valuestring : "";
-        const char *additional_info = (cJSON_IsString(additional_info_item) && additional_info_item->valuestring) ? additional_info_item->valuestring : "";
-
-        // Remove diacritics.
-        char *first_name_clean = remove_diacritics_utf8(first_name);
-        char *last_name_clean = remove_diacritics_utf8(last_name);
-        char *additional_info_clean = remove_diacritics_utf8(additional_info);
-
-        ESP_LOGI(TAG, "Parsed JSON - First Name: %s, Last Name: %s, Additional Info: %s",
-                 first_name_clean, last_name_clean, additional_info_clean);
-
-        // turn on display power
-        gpio_set_level(GPIO_NUM_2, 1);
-        // Update the e-ink display
-        display.fillScreen(EPD_WHITE);
-        // Set font and text color as needed
         display.setTextColor(EPD_BLACK);
 
-        uint16_t dispWidth = display.width();
-        uint16_t dispHeight = display.height();
-        uint16_t currentY = Y_OFFSET;
-        uint16_t lineSpacing = LINE_SPACING;
-        uint16_t availHeightForName = 150;
+        uint16_t w = display.width(), h = display.height();
+        uint16_t y = Y_OFFSET, ls = LINE_SPACING, nh = 150;
 
-        //  Display first name
-        if (strlen(first_name) > 0)
+        if (first_clean[0])
         {
-            const GFXfont *fontForFirst = selectFontForText(first_name_clean, dispWidth, availHeightForName);
-            display.setFont(fontForFirst);
-            currentY += printCenteredLine(first_name_clean, currentY, dispWidth);
-            currentY += lineSpacing; // extra gap after the first name
+            display.setFont(selectFontForText(first_clean, w, nh));
+            y += printCenteredLine(first_clean, y, w) + ls;
         }
-
-        //  Display last name
-        if (strlen(last_name) > 0)
+        if (last_clean[0])
         {
-            const GFXfont *fontForLast = selectFontForText(last_name_clean, dispWidth, availHeightForName);
-            display.setFont(fontForLast);
-            currentY += printCenteredLine(last_name_clean, currentY, dispWidth);
-            currentY += lineSpacing;
+            display.setFont(selectFontForText(last_clean, w, nh));
+            y += printCenteredLine(last_clean, y, w) + ls;
         }
-
-        //  Display additional info
-        if (strlen(additional_info) > 0)
+        if (add_clean[0])
         {
             display.setFont(&Roboto_Condensed_SemiBold40pt7b);
             int16_t tbx, tby;
             uint16_t tbw, tbh;
-            display.getTextBounds(additional_info_clean, 0, 0, &tbx, &tby, &tbw, &tbh);
-            uint16_t infoY = dispHeight - tbh - 20;
-            int16_t infoX = (dispWidth - tbw) / 2 - tbx;
-            display.setCursor(infoX, infoY + tbh);
-            display.println(additional_info_clean);
+            display.getTextBounds(add_clean, 0, 0, &tbx, &tby, &tbw, &tbh);
+            uint16_t yy = h - tbh - 20;
+            int16_t xx = (w - tbw) / 2 - tbx;
+            display.setCursor(xx, yy + tbh);
+            display.println(add_clean);
         }
-        // print battery voltage
+
         measure_batt_voltage();
-        static char bat_str[6];
+        char bat_str[6];
         sprintf(bat_str, "%0.2fV", bat_voltage / 1000.0f);
         display.setFont(NULL);
         display.setCursor(0, 0);
         display.setTextSize(1);
         display.println(bat_str);
-        // update display
-        display.update();
 
-        // Cleanup JSON and free allocated memory
-        cJSON_Delete(json);
-        free(json_str);
-        free(first_name_clean);
-        free(last_name_clean);
-        free(additional_info_clean);
-        // turn off display power
+        display.update();
         gpio_set_level(GPIO_NUM_2, 0);
+
+        free(first_clean);
+        free(last_clean);
+        free(add_clean);
+        cJSON_Delete(root);
+        return;
+    }
+    // ── Binary logo chunks ──────────────────────────────────────────────
+    // sanity check
+    if (logo_offset + data_len > LOGO_BUF_SIZE)
+    {
+        ESP_LOGE(TAG, "Logo buffer overflow: %u + %d > %u",
+                 logo_offset, data_len, (unsigned)LOGO_BUF_SIZE);
+        logo_offset = 0;
+        return;
+    }
+
+    // copy incoming chunk
+    memcpy(logo_buf + logo_offset, data, data_len);
+    logo_offset += data_len;
+
+    // if we've received the full image, render it
+    if (logo_offset >= LOGO_BUF_SIZE)
+    {
+        ESP_LOGI(TAG, "Full logo received (%u bytes), rendering…",
+                 (unsigned)logo_offset);
+
+        gpio_set_level(GPIO_NUM_2, 1);
+        display.fillScreen(EPD_WHITE);
+        // Draw raw 1-bit bitmap at (0,0)
+        display.drawBitmap(0, 0, logo_buf, EINK_W, EINK_H, EPD_BLACK);
+        display.update();
+        gpio_set_level(GPIO_NUM_2, 0);
+
+        // reset for next transfer
+        logo_offset = 0;
     }
 }
 
