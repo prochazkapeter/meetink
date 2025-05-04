@@ -1,86 +1,219 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Badge Text Editor</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Badge Editor</title>
+
     <style>
-        body {
+        :root {
+            /* ─── Core Palette ───────────────────────────────────────────── */
+            --primary: #0068A2;
+            --primary-hover: #005480;
+            --accent: #F8BD00;
+            --accent-hover: #D9A500;
+            --danger: #D64545;
+            --danger-hover: #B63B3B;
+            --success: #348F36;
+            --success-hover: #2C7D2C;
+
+            --bg-page: linear-gradient(135deg, #339ACC, #00507A);
+            --bg: #EAF4FB;
+            --surface: #FFFFFF;
+            --surface-alt: #D5E9F9;
+
+            --text-primary: #0D1F2D;
+            --text-secondary: #34586D;
+
+            /* ─── Metrics ─────────────────────────────────────────────────── */
+            --radius: 12px;
+            --gap: 16px;
+            --padding: 24px;
+            --shadow-strong: 0 8px 20px rgba(0, 0, 0, 0.08);
+            --shadow-light: 0 4px 6px rgba(0, 0, 0, 0.04);
+        }
+
+        /* ─── Global Reset ─────────────────────────────────────────────── */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            background-color: #4449db;
-            font-family: Arial, sans-serif;
+        }
+
+        /* ─── Body & Container ───────────────────────────────────────── */
+        body {
             display: flex;
             justify-content: center;
-            align-items: center;
+            align-items: flex-start;
             min-height: 100vh;
+            padding: var(--gap);
+            font-family: Arial, sans-serif;
+            background: var(--bg-page);
+            color: var(--text-primary);
         }
 
         .container {
-            background-color: #ffffff;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-            text-align: center;
-            width: 90%;
-            max-width: 600px;
-            box-sizing: border-box;
+            background: var(--bg);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-strong);
+            padding: var(--padding);
+            width: 100%;
+            max-width: 800px;
         }
 
         h1 {
-            margin-bottom: 20px;
+            margin-bottom: var(--gap);
+            font-weight: normal;
         }
 
-        input[type="text"] {
-            width: 80%;
-            padding: 10px;
-            margin-bottom: 20px;
+        h2 {
+            margin: var(--gap) 0 calc(var(--gap)/2) 0;
+            font-weight: normal;
+        }
+
+        h3 {
+            margin-bottom: calc(var(--gap)/2);
+            color: var(--text-secondary);
+        }
+
+        /* ─── Inputs & Forms ──────────────────────────────────────────── */
+        input[type="text"],
+        input[type="file"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: calc(var(--gap)/2);
             border: 1px solid #ccc;
             border-radius: 4px;
-            font-size: 16px;
+            background: #fff;
+            color: var(--text-primary);
+            font-size: 14px;
         }
 
-        button {
-            padding: 10px 20px;
-            background-color: #4449db;
-            border: none;
-            border-radius: 4px;
-            color: #fff;
-            font-size: 16px;
-            cursor: pointer;
+        /* ─── Badge Block ─────────────────────────────────────────────── */
+        .badge-block {
+            background: var(--surface-alt);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-light);
+            padding: var(--padding);
+            margin-bottom: var(--gap);
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--gap);
+            align-items: flex-start;
         }
 
-        button:hover {
-            background-color: #0056b3;
+        .badge-block h3 {
+            flex: 1 1 100%;
         }
 
-        .mac-block {
-            margin-top: 20px;
-            padding: 20px;
-            background-color: #f1f1f1;
-            border-radius: 50px;
+        .badge-block form {
+            flex: 1 1 100px;
+            display: flex;
+            flex-direction: column;
+            gap: calc(var(--gap)/2);
         }
 
-        .mac-block h3 {
-            margin-bottom: 10px;
-            color: #333;
+        /* ─── Logo Block ──────────────────────────────────────────────── */
+        .logo-block {
+            flex: 1 1 200px;
+            background: var(--surface-alt);
+            border-radius: var(--radius);
+            padding: var(--padding);
+            text-align: center;
+        }
+
+        .logo-block h3 {
+            margin-bottom: calc(var(--gap)/2);
         }
 
         .logo-block canvas {
             display: none;
-            /* stays hidden until .style.display = 'block'  is called*/
-            max-width: 100%;
+            width: 100%;
             height: auto;
-            border: 1px solid #ccc;
-            margin-top: 8px;
+            border-radius: var(--radius);
+            background: var(--bg);
+            box-shadow: var(--shadow-strong), var(--shadow-light);
+            margin-bottom: calc(var(--gap)/2);
+        }
+
+        .logo-block canvas.show {
+            display: block;
+        }
+
+        /* ─── Register Form ───────────────────────────────────────────── */
+        #macForm {
+            display: flex;
+            gap: calc(var(--gap)/2);
+            flex-wrap: wrap;
+            margin-top: var(--gap);
+        }
+
+        #macForm input {
+            flex: 1 1 200px;
+        }
+
+        /* ─── Buttons ─────────────────────────────────────────────────── */
+        button {
+            appearance: none;
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            border-radius: var(--radius);
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            box-shadow: var(--shadow-strong);
+            cursor: pointer;
+            transition: background 0.15s ease-in-out;
+        }
+
+        button:hover:not(:disabled) {
+            background: var(--primary-hover);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Variants */
+        button.clear {
+            background: var(--accent);
+        }
+
+        button.clear:hover:not(:disabled) {
+            background: var(--accent-hover);
+        }
+
+        button.delete {
+            background: var(--danger);
+        }
+
+        button.delete:hover:not(:disabled) {
+            background: var(--danger-hover);
+        }
+
+        button.send-logo-btn {
+            background: var(--success);
+        }
+
+        button.send-logo-btn:hover:not(:disabled) {
+            background: var(--success-hover);
         }
     </style>
+
 </head>
 
 <body>
     <div class="container">
-        <h1>Badge Text Editor</h1>
+        <h1>Badge Editor</h1>
 
         <!-- Dynamic MAC forms will be injected here -->
         <!-- {{MAC_LIST}} -->
@@ -93,194 +226,112 @@
     </div>
 
     <script>
-        document.getElementById('macForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const mac = document.getElementById('mac_address').value.trim();
-            const response = await fetch('/addmac', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mac })
-            });
-            if (response.ok) {
-                console.log(`MAC ${mac} registered successfully.`);
-                setTimeout(() => location.reload(), 1000);
-            } else {
-                console.error("Failed to register MAC. Check format.");
-            }
-        });
-
-        async function sendText(e, mac) {
-            e.preventDefault();
-            const form = e.target;
-            const data = {
-                mac: mac,
-                first_name: form.first_name.value,
-                last_name: form.last_name.value,
-                additional_info: form.additional_info.value
-            };
-            const response = await fetch('/sendtext', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            if (response.ok) {
-                console.log(`Text sent to ${mac}. Data:`, data);
-            } else {
-                console.error(`Failed to send to ${mac}`);
-            }
-        }
-
-        async function deleteMac(mac) {
-            if (!confirm(`Delete ${mac}?`)) return;
-            const response = await fetch('/deletemac', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mac })
-            });
-            if (response.ok) {
-                console.log(`MAC ${mac} deleted.`);
-                setTimeout(() => location.reload(), 500);
-            } else {
-                console.error(`Failed to delete MAC: ${mac}`);
-            }
-        }
-
-        async function clearBadge(mac) {
-            if (!confirm(`Clear text on ${mac}?`)) return;
-            const response = await fetch('/clearbadge', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mac })
-            });
-            if (response.ok) {
-                console.log(`Badge ${mac} cleared.`);
-                setTimeout(() => location.reload(), 500);
-            } else {
-                console.error(`Failed to clear badge: ${mac}`);
-            }
-        }
-
-        const EINK_W = 800;
-        const EINK_H = 480;
-
-        // ─── Convert the 1-bit canvas into raw bytes ─────────────────────────────────
-        function canvasToBytes(canvas) {
-            const ctx = canvas.getContext('2d');
-            const img = ctx.getImageData(0, 0, EINK_W, EINK_H).data;
-            const bytes = new Uint8Array((EINK_W * EINK_H) / 8);
-            let byteIdx = 0, bitPos = 7;
-            bytes.fill(0);
-
-            for (let y = 0; y < EINK_H; y++) {
-                for (let x = 0; x < EINK_W; x++) {
-                    const idx = (y * EINK_W + x) * 4;
-                    if (img[idx] === 0) {              // black pixel
-                        bytes[byteIdx] |= (1 << bitPos);
-                    }
-                    bitPos--;
-                    if (bitPos < 0) {
-                        bitPos = 7;
-                        byteIdx++;
-                    }
-                }
-            }
-            return bytes;
-        }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            document.querySelectorAll('.logo-block').forEach(block => {
-                const mac = block.dataset.mac;
-                const input = document.getElementById(`logoInput_${mac}`);
-                const canvas = document.getElementById(`logoPreview_${mac}`);
-                const btn = document.getElementById(`sendLogoBtn_${mac}`);
-
-                if (!input || !canvas || !btn) return;
-
-                input.addEventListener('change', async () => {
-                    const file = input.files[0];
-                    if (!file) return;
-
-                    await renderAndThreshold(file, canvas);
-                    canvas.style.display = 'block';
-                    btn.disabled = false;
-                });
-
-                btn.addEventListener('click', () => {
-                    uploadLogo(mac);
-                });
-            });
-        });
+        const EINK_W = 800, EINK_H = 480;
 
         async function renderAndThreshold(file, canvas) {
-            // Create an <img> from the File blob
             const img = new Image();
             img.src = URL.createObjectURL(file);
             await img.decode();
 
             const ctx = canvas.getContext('2d');
-            // Clear to white
             ctx.fillStyle = 'white';
             ctx.fillRect(0, 0, EINK_W, EINK_H);
 
-            // Compute scale to fit within 800×480 (no upscaling)
             const scale = Math.min(EINK_W / img.width, EINK_H / img.height, 1);
-            const dw = Math.round(img.width * scale);
-            const dh = Math.round(img.height * scale);
-            const dx = Math.round((EINK_W - dw) / 2);
-            const dy = Math.round((EINK_H - dh) / 2);
-
-            // Draw the image centered
+            const dw = Math.round(img.width * scale), dh = Math.round(img.height * scale);
+            const dx = (EINK_W - dw) / 2 | 0, dy = (EINK_H - dh) / 2 | 0;
             ctx.drawImage(img, dx, dy, dw, dh);
 
-            // Grab pixels and threshold
-            const imgData = ctx.getImageData(0, 0, EINK_W, EINK_H);
-            const d = imgData.data;
-            for (let i = 0; i < d.length; i += 4) {
-                // average RGB
-                const avg = (d[i] + d[i + 1] + d[i + 2]) / 3;
-                // black if <128, else white
+            const data = ctx.getImageData(0, 0, EINK_W, EINK_H).data;
+            for (let i = 0; i < data.length; i += 4) {
+                const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
                 const v = avg < 128 ? 0 : 255;
-                d[i] = d[i + 1] = d[i + 2] = v;
-                // leave alpha=255
+                data[i] = data[i + 1] = data[i + 2] = v;
             }
-            // Put the thresholded image back
-            ctx.putImageData(imgData, 0, 0);
+            ctx.putImageData(new ImageData(data, EINK_W, EINK_H), 0, 0);
         }
 
-        /**
-         * Grabs the 1-bit image from the canvas, packs it into a Blob,
-         * then sends it via XHR to /sendlogo with progress events.
-         */
+        function canvasToBytes(canvas) {
+            const ctx = canvas.getContext('2d');
+            const img = ctx.getImageData(0, 0, EINK_W, EINK_H).data;
+            const bytes = new Uint8Array((EINK_W * EINK_H) / 8);
+            let byteIdx = 0, bitPos = 7;
+            for (let i = 0; i < img.length; i += 4) {
+                if (img[i] === 0) bytes[byteIdx] |= 1 << bitPos;
+                if (bitPos-- === 0) { bitPos = 7; byteIdx++; }
+            }
+            return bytes;
+        }
+
         function uploadLogo(mac) {
             const canvas = document.getElementById(`logoPreview_${mac}`);
-            const progress = document.getElementById(`logoProgress_${mac}`);
-            const bytes = canvasToBytes(canvas);
-            // encode "AA:BB:CC:DD:EE:FF\n" as UTF-8
             const header = new TextEncoder().encode(mac + "\n");
-            // combine header + image bytes
-            const payload = new Blob([header, bytes.buffer], { type: 'application/octet-stream' });
+            const payload = new Blob([header, canvasToBytes(canvas).buffer], { type: 'application/octet-stream' });
 
-            const xhttp = new XMLHttpRequest();
+            const xhr = new XMLHttpRequest();
+            xhr.onloadend = () => {
+                alert(xhr.status === 200 ? '✅ Logo uploaded!' : '❌ Upload failed');
+            };
 
-            progress.style.display = 'block';
-            progress.value = 0;
-
-            xhttp.upload.addEventListener('progress', e => {
-                if (e.lengthComputable) progress.value = (e.loaded / e.total) * 100;
-            });
-
-            xhttp.addEventListener('loadend', () => {
-                alert(xhttp.status === 200 ? '✅ Logo uploaded!' : '❌ Upload failed');
-                setTimeout(() => {
-                    progress.style.display = 'none';
-                    progress.value = 0;
-                }, 1500);
-            });
-
-            xhttp.open('POST', '/sendlogo', true);
-            xhttp.send(payload);
+            xhr.open('POST', '/sendlogo', true);
+            xhr.send(payload);
         }
 
+        document.getElementById('macForm').addEventListener('submit', async e => {
+            e.preventDefault();
+            const mac = document.getElementById('mac_address').value.trim();
+            const res = await fetch('/addmac', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac })
+            });
+            if (res.ok) setTimeout(() => location.reload(), 1000);
+            else console.error('Failed to register MAC');
+        });
+
+        function sendText(e, mac) {
+            e.preventDefault();
+            const f = e.target;
+            fetch('/sendtext', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mac,
+                    first_name: f.first_name.value,
+                    last_name: f.last_name.value,
+                    additional_info: f.additional_info.value
+                })
+            }).then(r => r.ok ? console.log('Sent') : console.error('Fail'));
+        }
+        function deleteMac(mac) {
+            if (!confirm(`Delete ${mac} from the list?`)) return;
+            fetch('/deletemac', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac })
+            }).then(r => r.ok ? setTimeout(() => location.reload(), 500) : console.error('Fail'));
+        }
+        function clearBadge(mac) {
+            if (!confirm(`Clear screen on ${mac}?`)) return;
+            fetch('/clearbadge', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac })
+            }).then(r => r.ok ? setTimeout(() => location.reload(), 500) : console.error('Fail'));
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.badge-block').forEach(block => {
+                const mac = block.dataset.mac;
+                const input = document.getElementById(`logoInput_${mac}`);
+                const canvas = document.getElementById(`logoPreview_${mac}`);
+                const btn = document.getElementById(`sendLogoBtn_${mac}`);
+                if (!input || !canvas || !btn) return;
+
+                input.addEventListener('change', async () => {
+                    await renderAndThreshold(input.files[0], canvas);
+                    canvas.classList.add('show');
+                    btn.disabled = false;
+                });
+                btn.addEventListener('click', () => uploadLogo(mac));
+            });
+        });
     </script>
 </body>
 

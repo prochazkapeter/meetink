@@ -56,36 +56,36 @@ char *generate_mac_blocks_html()
             continue; // slot empty
         }
 
-        // ─── Text-send form ──────────────────────────────────────────────
+        // Generate the combined badge + logo HTML block
         snprintf(block, sizeof(block),
-                 "<div class='mac-block'>"
-                 "<h3>Client id: %s</h3>"
-                 "<form onsubmit='sendText(event,\"%s\")'>"
-                 "<input type='text' name='first_name' placeholder='First Name'><br>"
-                 "<input type='text' name='last_name'  placeholder='Last Name'><br>"
-                 "<input type='text' name='additional_info' placeholder='Additional Info'><br>"
-                 "<button type='submit'>Send</button>"
-                 "<button type='button' onclick='clearBadge(\"%s\")' "
-                 "style='margin-left:10px;background:#c96f10;'>Clear</button>"
-                 "<button type='button' onclick='deleteMac(\"%s\")' "
-                 "style='margin-left:10px;background:#e74c3c;'>Delete</button>"
+                 "<div class=\"badge-block\" data-mac=\"%s\">"
+                 "<h3>%s</h3>"
+                 "<form onsubmit=\"sendText(event,'%s')\">"
+                 "<input type=\"text\" name=\"first_name\" placeholder=\"First Name\">"
+                 "<input type=\"text\" name=\"last_name\" placeholder=\"Last Name\">"
+                 "<input type=\"text\" name=\"additional_info\" placeholder=\"Additional Info\">"
+                 "<div style=\"display:flex; gap:8px; margin-top:8px;\">"
+                 "<button type=\"submit\">Send</button>"
+                 "<button type=\"button\" class=\"clear\" onclick=\"clearBadge('%s')\">Clear</button>"
+                 "<button type=\"button\" class=\"delete\" onclick=\"deleteMac('%s')\">Delete</button>"
+                 "</div>"
                  "</form>"
+                 "<div class=\"logo-block\">"
+                 "<h3>Image Upload</h3>"
+                 "<input type=\"file\" id=\"logoInput_%s\" accept=\"image/*\">"
+                 "<canvas id=\"logoPreview_%s\" width=\"800\" height=\"480\"></canvas>"
+                 "<button id=\"sendLogoBtn_%s\" class=\"send-logo-btn\" disabled>Send Image</button>"
+                 "</div>"
                  "</div>",
-                 mac, mac, mac, mac);
-        strcat(output, block);
-
-        // ─── Logo-upload form ───────────────────────────────────────────
-        snprintf(block, sizeof(block),
-                 "<div class='logo-block' data-mac='%s'>"
-                 "<h3>Logo for: %s</h3>"
-                 "<input type='file' id='logoInput_%s' accept='image/*'><br>"
-                 // no inline width/height; CSS will size it
-                 "<canvas id='logoPreview_%s' width='800' height='480'></canvas><br>"
-                 "<progress id='logoProgress_%s' value='0' max='100' "
-                 "style='width:100%%;max-width:800px;display:none;margin-top:8px;'></progress><br>"
-                 "<button type='button' id='sendLogoBtn_%s' disabled>Send Logo</button>"
-                 "</div>",
-                 mac, mac, mac, mac, mac, mac);
+                 mac, // data-mac
+                 mac, // <h3>%s</h3>
+                 mac, // sendText(event,'%s')
+                 mac, // clearBadge('%s')
+                 mac, // deleteMac('%s')
+                 mac, // id="logoInput_%s"
+                 mac, // id="logoPreview_%s"
+                 mac  // id="sendLogoBtn_%s"
+        );
         strcat(output, block);
     }
 
