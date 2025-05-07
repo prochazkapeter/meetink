@@ -16,14 +16,15 @@
 #define Y_OFFSET 40
 #define LINE_SPACING 50
 
-// Tell every file “io” and “display” are defined elsewhere:
 extern EpdSpi io;
 extern Gdew075T7 display;
 
 void display_start_screen(void);
 
-uint16_t printCenteredLine(const char *text, uint16_t startY, uint16_t availWidth);
+void display_message_data(const uint8_t *data, int data_len);
 
-const GFXfont *selectFontForText(const char *text, uint16_t availWidth, uint16_t availHeight);
+uint16_t print_centered_line(const char *text, uint16_t startY, uint16_t availWidth);
+
+const GFXfont *select_font_for_text(const char *text, uint16_t availWidth, uint16_t availHeight);
 
 #endif

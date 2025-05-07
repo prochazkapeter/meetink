@@ -1,32 +1,20 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include "esp_wifi.h"
-#include "esp_mac.h"
-#include "esp_log.h"
-#include "string.h"
-#include "nvs_flash.h"
 #include "esp_now.h"
-#include "driver/gpio.h"
-
-#include "cJSON.h"
-#include "text_decode_utils.h"
 #include "wifi.h"
 #include "display.h"
 #include "battery.h"
-#include "mbedtls/base64.h"
 
-// #include "freertos/FreeRTOS.h"
-// #include "freertos/task.h"
+// FreeRTOS queue
+#define ESPNOW_MAX_PAYLOAD 250
+typedef struct
+{
+    uint8_t mac[ESP_NOW_ETH_ALEN]; // 6-byte MAC of the sender
+    int len;                       // real length of `data`
+    uint8_t data[ESPNOW_MAX_PAYLOAD];
+} espnow_evt_t;
 
-// ESP-NOW image data
-#define EINK_W 800
-#define EINK_H 480
-#define LOGO_BUF_SIZE ((EINK_W * EINK_H) / 8)
-// buffer & write-offset for incoming logo chunks
-static uint8_t logo_buf[LOGO_BUF_SIZE];
-static size_t logo_offset = 0;
+static QueueHandle_t espnow_queue;
 
-static const char *TAG = "ESP-NOW RX";
+static const char *TAG = "RX-MAIN";
 
 extern "C"
 {
@@ -35,129 +23,60 @@ extern "C"
 
 void delay(uint32_t millis) { vTaskDelay(millis / portTICK_PERIOD_MS); }
 
-void esp_now_recv_callback(const esp_now_recv_info_t *esp_now_info, const uint8_t *data, int data_len)
+/**
+ * @brief ISR-level ESP-NOW RX callback that hand-offs packets to a worker task.
+ *
+ * Copies a received frame (≤ #ESPNOW_MAX_PAYLOAD) into a local espnow_evt_t
+ * and posts it to the global @c espnow_queue with xQueueSendFromISR().
+ * Oversize frames are discarded.
+ * If the queue send wakes a higher-priority task, portYIELD_FROM_ISR() is
+ * invoked to yield immediately.
+ *
+ * @param info Driver-supplied metadata (sender MAC, RSSI, …).
+ * @param data Pointer to the payload.
+ * @param len  Payload length in bytes.
+ *
+ * @note Runs in ISR/Wi-Fi context—keep it short, allocation-free and use only
+ *       FromISR() APIs.
+ */
+static void esp_now_recv_callback(const esp_now_recv_info_t *info, const uint8_t *data, int len)
 {
-    // ── JSON-based control (clear/text) ────────────────────────────────
-    if (data_len > 0 && data[0] == '{')
-    {
-        // existing JSON handling (clear screen or draw text)...
-        char *json_str = (char *)malloc(data_len + 1);
-        if (!json_str)
-        {
-            ESP_LOGE(TAG, "OOM allocating JSON buffer");
-            return;
-        }
-        memcpy(json_str, data, data_len);
-        json_str[data_len] = '\0';
-
-        cJSON *root = cJSON_Parse(json_str);
-        free(json_str);
-        if (!root)
-        {
-            ESP_LOGE(TAG, "Malformed JSON");
-            return;
-        }
-
-        // Clear display?
-        if (cJSON_GetObjectItemCaseSensitive(root, "clear"))
-        {
-            gpio_set_level(GPIO_NUM_2, 1);
-            display.fillScreen(EPD_WHITE);
-            display.update();
-            gpio_set_level(GPIO_NUM_2, 0);
-            cJSON_Delete(root);
-            return;
-        }
-
-        // 1b) Text update
-        cJSON *first_item = cJSON_GetObjectItemCaseSensitive(root, "first_name");
-        cJSON *last_item = cJSON_GetObjectItemCaseSensitive(root, "last_name");
-        cJSON *add_item = cJSON_GetObjectItemCaseSensitive(root, "additional_info");
-
-        const char *first = cJSON_IsString(first_item) ? first_item->valuestring : "";
-        const char *last = cJSON_IsString(last_item) ? last_item->valuestring : "";
-        const char *add = cJSON_IsString(add_item) ? add_item->valuestring : "";
-
-        char *first_clean = remove_diacritics_utf8(first);
-        char *last_clean = remove_diacritics_utf8(last);
-        char *add_clean = remove_diacritics_utf8(add);
-
-        gpio_set_level(GPIO_NUM_2, 1);
-        display.fillScreen(EPD_WHITE);
-        display.setTextColor(EPD_BLACK);
-
-        uint16_t w = display.width(), h = display.height();
-        uint16_t y = Y_OFFSET, ls = LINE_SPACING, nh = 150;
-
-        if (first_clean[0])
-        {
-            display.setFont(selectFontForText(first_clean, w, nh));
-            y += printCenteredLine(first_clean, y, w) + ls;
-        }
-        if (last_clean[0])
-        {
-            display.setFont(selectFontForText(last_clean, w, nh));
-            y += printCenteredLine(last_clean, y, w) + ls;
-        }
-        if (add_clean[0])
-        {
-            display.setFont(&Roboto_Condensed_SemiBold40pt7b);
-            int16_t tbx, tby;
-            uint16_t tbw, tbh;
-            display.getTextBounds(add_clean, 0, 0, &tbx, &tby, &tbw, &tbh);
-            uint16_t yy = h - tbh - 20;
-            int16_t xx = (w - tbw) / 2 - tbx;
-            display.setCursor(xx, yy + tbh);
-            display.println(add_clean);
-        }
-
-        float bat_voltage = measure_batt_voltage();
-        char bat_str[6];
-        sprintf(bat_str, "%0.2fV", bat_voltage / 1000.0f);
-        display.setFont(NULL);
-        display.setCursor(0, 0);
-        display.setTextSize(1);
-        display.println(bat_str);
-
-        display.update();
-        gpio_set_level(GPIO_NUM_2, 0);
-
-        free(first_clean);
-        free(last_clean);
-        free(add_clean);
-        cJSON_Delete(root);
+    if (len > ESPNOW_MAX_PAYLOAD)
         return;
-    }
 
-    // ── Binary logo chunks ──────────────────────────────────────────────
-    // sanity check
-    if (logo_offset + data_len > LOGO_BUF_SIZE)
+    espnow_evt_t evt;
+    memcpy(evt.mac, info->src_addr, ESP_NOW_ETH_ALEN);
+    evt.len = len;
+    memcpy(evt.data, data, len);
+
+    BaseType_t xHigherPrioTaskWoken = pdFALSE;
+    xQueueSendFromISR(espnow_queue, &evt, &xHigherPrioTaskWoken);
+
+    // If the queue send woke a higher-prio task, request a context-switch
+    if (xHigherPrioTaskWoken)
+        portYIELD_FROM_ISR();
+}
+
+/**
+ * @brief FreeRTOS worker that handles packets pushed by the ISR callback.
+ *
+ * Blocks on @c espnow_queue (portMAX_DELAY).
+ * Each dequeued ::espnow_evt_t is passed to @c display_message_data() for full
+ * JSON/logo parsing and display updates—work that is unsafe in ISR context but
+ * fine here.
+ *
+ * @param arg Unused; pass NULL when creating the task.
+ */
+static void espnow_worker_task(void *arg)
+{
+    espnow_evt_t evt;
+
+    while (true)
     {
-        ESP_LOGE(TAG, "Logo buffer overflow: %u + %d > %u",
-                 logo_offset, data_len, (unsigned)LOGO_BUF_SIZE);
-        logo_offset = 0;
-        return;
-    }
-
-    // copy incoming chunk
-    memcpy(logo_buf + logo_offset, data, data_len);
-    logo_offset += data_len;
-
-    // if we've received the full image, render it
-    if (logo_offset >= LOGO_BUF_SIZE)
-    {
-        ESP_LOGI(TAG, "Full logo received (%u bytes), rendering…",
-                 (unsigned)logo_offset);
-
-        gpio_set_level(GPIO_NUM_2, 1);
-        display.fillScreen(EPD_WHITE);
-        // Draw raw 1-bit bitmap at (0,0)
-        display.drawBitmap(0, 0, logo_buf, EINK_W, EINK_H, EPD_BLACK);
-        display.update();
-        gpio_set_level(GPIO_NUM_2, 0);
-
-        // reset for next transfer
-        logo_offset = 0;
+        if (xQueueReceive(espnow_queue, &evt, portMAX_DELAY) == pdTRUE)
+        {
+            display_message_data(evt.data, evt.len);
+        }
     }
 }
 
@@ -165,12 +84,26 @@ void app_main(void)
 {
     // init wi-fi and esp-now
     wifi_sta_init();
-    esp_now_register_recv_cb(esp_now_recv_callback);
+    espnow_queue = xQueueCreate(30, sizeof(espnow_evt_t));
+    assert(espnow_queue);
+    ESP_ERROR_CHECK(esp_now_register_recv_cb(esp_now_recv_callback));
+
+    /* start the worker */
+    xTaskCreatePinnedToCore(espnow_worker_task,
+                            "espnow_worker",
+                            4096, /* stack size – raise if needed */
+                            NULL,
+                            4, /* priority > Wi-Fi task (usually 3) */
+                            NULL,
+                            tskNO_AFFINITY);
+
+    // init adc for battery measurement
     adc_init();
 
     // power for EInk display
     gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
     gpio_set_level(GPIO_NUM_2, 1);
+    // display default screen
     display_start_screen();
     while (1)
     {
