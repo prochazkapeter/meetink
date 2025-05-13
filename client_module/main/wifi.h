@@ -8,6 +8,12 @@ extern "C"
 
 #include "esp_err.h"
 
+#define CONFIG_ESPNOW_ENABLE_POWER_SAVE 0
+// range 0 - 65535 in milliseconds
+#define CONFIG_ESPNOW_WAKE_WINDOW 50
+// range 1 - 65535 in milliseconds
+#define CONFIG_ESPNOW_WAKE_INTERVAL 100
+
     /**
      * @brief Initialize Wi-Fi in station mode and set up ESP-NOW receive.
      *

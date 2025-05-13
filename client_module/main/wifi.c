@@ -32,4 +32,8 @@ void wifi_sta_init(void)
 
     // init ESP-NOW
     ESP_ERROR_CHECK(esp_now_init());
+#if CONFIG_ESPNOW_ENABLE_POWER_SAVE
+    ESP_ERROR_CHECK(esp_now_set_wake_window(CONFIG_ESPNOW_WAKE_WINDOW));
+    ESP_ERROR_CHECK(esp_wifi_connectionless_module_set_wake_interval(CONFIG_ESPNOW_WAKE_INTERVAL));
+#endif
 }

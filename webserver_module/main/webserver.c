@@ -1,3 +1,4 @@
+#include "webserver.h"
 #include <string.h>
 #include <stdlib.h>
 #include "esp_log.h"
@@ -7,21 +8,13 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "web_content.h" // Contains the index_html constant
+#include "wifi.h"
 
 #include "mbedtls/base64.h"
 
 static const char *TAG = "EInkREST";
 
-#define MAX_MAC_ENTRIES 20
-#define EINK_W 800
-#define EINK_H 480
-#define ESP_NOW_MAX_DATA_LEN 250
-// one bit per pixel
-#define LOGO_BUF_SIZE ((EINK_W * EINK_H) / 8)
-#define MAC_STR_LEN 17               // "AA:BB:CC:DD:EE:FF"
-#define HEADER_LEN (MAC_STR_LEN + 1) // + '\n'
 static uint8_t logo_buf[LOGO_BUF_SIZE];
-// static const uint8_t target_mac[6] = {0x34, 0x5F, 0x45, 0x2D, 0xB1, 0x68};
 
 char *generate_mac_blocks_html()
 {
@@ -312,6 +305,9 @@ static esp_err_t addmac_post_handler(httpd_req_t *req)
                 nvs_close(nvs);
                 cJSON_Delete(json);
                 ESP_LOGI("AddMAC", "MAC is saved");
+
+                // add peer
+                add_peer(mac_bin);
                 return httpd_resp_send(req, "MAC saved", HTTPD_RESP_USE_STRLEN);
             }
             else
@@ -387,18 +383,26 @@ static esp_err_t deletemac_post_handler(httpd_req_t *req)
         }
     }
 
-    nvs_close(nvs);
-    cJSON_Delete(json);
-
+    esp_err_t retval;
     if (found)
     {
-        return httpd_resp_send(req, "MAC deleted", HTTPD_RESP_USE_STRLEN);
+        // delete esp-now peer
+        uint8_t mac_bin[6];
+        sscanf(target_mac, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+               &mac_bin[0], &mac_bin[1], &mac_bin[2],
+               &mac_bin[3], &mac_bin[4], &mac_bin[5]);
+        delete_peer(mac_bin);
+        retval = httpd_resp_send(req, "MAC deleted", HTTPD_RESP_USE_STRLEN);
     }
     else
     {
         ESP_LOGE("DeleteMAC", "Delete mac failed");
-        return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "MAC not found");
+        retval = httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "MAC not found");
     }
+
+    nvs_close(nvs);
+    cJSON_Delete(json);
+    return (retval);
 }
 
 static esp_err_t clearbadge_post_handler(httpd_req_t *req)
@@ -459,7 +463,7 @@ static esp_err_t clearbadge_post_handler(httpd_req_t *req)
     return res;
 }
 
-static bool parse_mac(const char *s, uint8_t mac[6])
+bool parse_mac(const char *s, uint8_t mac[6])
 {
     int vals[6];
     if (sscanf(s, "%x:%x:%x:%x:%x:%x",

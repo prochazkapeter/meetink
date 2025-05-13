@@ -93,7 +93,7 @@ void app_main(void)
                             "espnow_worker",
                             4096, /* stack size – raise if needed */
                             NULL,
-                            4, /* priority > Wi-Fi task (usually 3) */
+                            2, /* priority > Wi-Fi task (usually 3) */
                             NULL,
                             tskNO_AFFINITY);
 
