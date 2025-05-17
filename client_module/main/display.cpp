@@ -9,8 +9,18 @@
 #include "text_decode_utils.h"
 
 EpdSpi io;
+
+#ifdef GDEW_075T7
+Gdew075T7 display(io);
+
+#elif defined GDEY_075Z08
+Gdew075Z08 display(io);
+
+#else
+#error "ePaper type not defined!"
+#endif
+
 // Gdem029E97 display(io); // 2.9 inch
-Gdew075T7 display(io); // 7.5 inch
 
 // ESP-NOW image data
 #define EINK_W 800
@@ -320,7 +330,7 @@ static void qr_eink_display(esp_qrcode_handle_t qrcode)
 void display_start_screen(void)
 {
     ESP_LOGI(TAG, "CalEPD version %s", CALEPD_VERSION);
-    display.init(false);
+    display.init(true);
     display.setRotation(2);
     display.setTextColor(EPD_BLACK);
     // display.fillScreen(EPD_WHITE);

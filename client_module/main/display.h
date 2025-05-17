@@ -1,8 +1,20 @@
 #ifndef DISPLAY_H
 #define DISPLAY_H
 
+#define GDEW_075T7
+// #define GDEY_075Z08
+
+#ifdef GDEW_075T7
+#include "gdew075T7.h"
+
+#elif defined GDEY_075Z08
+#include "gdew075Z08.h"
+
+#else
+#error "ePaper type not defined!"
+#endif
+
 #include "EpdSpi.h"
-#include "Gdew075T7.h"
 // #include "gdem029E97.h"
 
 #include <Fonts/Roboto_Condensed_SemiBold40pt7b.h>
@@ -17,7 +29,15 @@
 #define LINE_SPACING 50
 
 extern EpdSpi io;
+#ifdef GDEW_075T7
 extern Gdew075T7 display;
+
+#elif defined GDEY_075Z08
+extern Gdew075Z08 display;
+
+#else
+#error "ePaper type not defined!"
+#endif
 
 void display_start_screen(void);
 

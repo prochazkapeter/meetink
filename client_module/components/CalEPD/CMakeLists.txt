@@ -21,6 +21,8 @@ set(srcs
     "models/wave12i48.cpp"
     "models/gdew075HD.cpp"
     "models/gdew075T7.cpp"
+    # My new 3 color
+    "models/gdew075Z08.cpp"
     "models/gdew075T7Grays.cpp"
     "models/gdew075T8.cpp"
     "models/gdew0583t7.cpp"
